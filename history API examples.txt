@@ -1,0 +1,310 @@
+POST /api/v1/history/{game} — Store Round
+Baccarat
+json{
+  "shoe_no": 5,
+  "table_id": 1,
+  "tab_id": "TAB001",
+  "player_cards": ["Ah", "Kd", "3c"],
+  "banker_cards": ["2h", "9s"],
+  "winner": "banker",
+  "side_win": "player_pair",
+  "bet_position": "banker",
+  "bet_amount": 500.00,
+  "win_amount": 475.00,
+  "current_credit": 9975.00,
+  "date_time": "2026-05-04 14:32:10"
+}
+
+winner: player | banker | tie
+bet_position: player | banker | tie | player_pair | banker_pair | lucky6
+side_win: comma-separated if multiple e.g. "player_pair,lucky6" — null if none
+shoe_no: nullable
+
+
+Andar Bahar
+json{
+  "table_id": 2,
+  "tab_id": "TAB002",
+  "joker_card": "7h",
+  "andar_cards": ["2c", "Kd", "7s"],
+  "bahar_cards": ["5h", "Jc", "9d"],
+  "winner": "andar",
+  "side_win": null,
+  "bet_position": "andar",
+  "bet_amount": 200.00,
+  "win_amount": 200.00,
+  "current_credit": 5200.00,
+  "date_time": "2026-05-04 14:35:00"
+}
+
+winner: andar | bahar
+bet_position: andar | bahar | super_andar | super_bahar
+joker_card: single card string
+
+
+Dragon Tiger
+json{
+  "shoe_no": 3,
+  "table_id": 3,
+  "tab_id": "TAB003",
+  "dragon_card": "Ks",
+  "tiger_card": "4h",
+  "winner": "dragon",
+  "side_win": null,
+  "bet_position": "dragon",
+  "bet_amount": 1000.00,
+  "win_amount": 1000.00,
+  "current_credit": 11000.00,
+  "date_time": "2026-05-04 14:40:00"
+}
+
+winner: dragon | tiger | tie
+bet_position: dragon | tiger | tie
+dragon_card / tiger_card: single card string each
+
+
+Three Card Poker
+json{
+  "table_id": 4,
+  "tab_id": "TAB004",
+  "player_cards": ["Ah", "Kh", "Qh"],
+  "dealer_cards": ["2c", "7d", "9s"],
+  "winner": "player",
+  "side_win": "six_card_bonus",
+  "bet_position": "ante",
+  "bet_amount": 300.00,
+  "win_amount": 600.00,
+  "current_credit": 8600.00,
+  "date_time": "2026-05-04 14:45:00"
+}
+
+winner: player | dealer | tie
+bet_position: ante | pair_plus | six_card_bonus
+player_cards / dealer_cards: always exactly 3 cards
+
+
+Blackjack — No Split
+json{
+  "table_id": 5,
+  "tab_id": "TAB005",
+  "player_cards": ["Ah", "Kd"],
+  "dealer_cards": ["7c", "9s", "5h"],
+  "double_amount": 0,
+  "insurance_amount": 0,
+  "split_hands": null,
+  "winner": "blackjack",
+  "side_win": null,
+  "bet_position": "main",
+  "bet_amount": 500.00,
+  "win_amount": 1250.00,
+  "current_credit": 12250.00,
+  "date_time": "2026-05-04 14:50:00"
+}
+Blackjack — With Double
+json{
+  "table_id": 5,
+  "tab_id": "TAB005",
+  "player_cards": ["6h", "5d", "Kc"],
+  "dealer_cards": ["7c", "9s"],
+  "double_amount": 500.00,
+  "insurance_amount": 0,
+  "split_hands": null,
+  "winner": "player",
+  "side_win": null,
+  "bet_position": "main",
+  "bet_amount": 500.00,
+  "win_amount": 2000.00,
+  "current_credit": 14000.00,
+  "date_time": "2026-05-04 14:52:00"
+}
+Blackjack — With Insurance
+json{
+  "table_id": 5,
+  "tab_id": "TAB005",
+  "player_cards": ["Kh", "8d"],
+  "dealer_cards": ["Ah", "Kc"],
+  "double_amount": 0,
+  "insurance_amount": 250.00,
+  "split_hands": null,
+  "winner": "dealer",
+  "side_win": null,
+  "bet_position": "main",
+  "bet_amount": 500.00,
+  "win_amount": 500.00,
+  "current_credit": 13500.00,
+  "date_time": "2026-05-04 14:54:00"
+}
+Blackjack — With Split
+json{
+  "table_id": 5,
+  "tab_id": "TAB005",
+  "player_cards": ["8h", "8d"],
+  "dealer_cards": ["7c", "Ks"],
+  "double_amount": 0,
+  "insurance_amount": 0,
+  "split_hands": [
+    {
+      "split_no": 1,
+      "cards": ["8h", "3d", "Jc"],
+      "double_amount": 0,
+      "insurance_amount": 0,
+      "bet_amount": 500.00,
+      "winner": "player",
+      "win_amount": 1000.00
+    },
+    {
+      "split_no": 2,
+      "cards": ["8d", "Ac"],
+      "double_amount": 0,
+      "insurance_amount": 0,
+      "bet_amount": 500.00,
+      "winner": "player",
+      "win_amount": 1000.00
+    }
+  ],
+  "winner": "player",
+  "side_win": null,
+  "bet_position": "main",
+  "bet_amount": 500.00,
+  "win_amount": 2000.00,
+  "current_credit": 15500.00,
+  "date_time": "2026-05-04 14:56:00"
+}
+
+winner on parent row: overall outcome summary
+win_amount on parent: total payout across all split hands combined
+bet_amount on parent: original bet before split
+winner: player | dealer | tie | blackjack | bust
+bet_position: main | pair | 777_charlie
+
+
+Mini Flush
+json{
+  "table_id": 6,
+  "tab_id": "TAB006",
+  "player_cards": ["Ah", "2h", "3h"],
+  "dealer_cards": ["Kc", "Qd", "Js"],
+  "winner": "player",
+  "side_win": "hl",
+  "bet_position": "main",
+  "bet_amount": 400.00,
+  "win_amount": 800.00,
+  "current_credit": 7800.00,
+  "date_time": "2026-05-04 15:00:00"
+}
+
+winner: player | dealer | tie
+bet_position: main | hl
+side_win: hl | null
+
+
+Casino War
+json{
+  "table_id": 7,
+  "tab_id": "TAB007",
+  "player_cards": ["Kh", "9d"],
+  "dealer_cards": ["7c", "9d"],
+  "winner": "war",
+  "side_win": "tie",
+  "bet_position": "main",
+  "bet_amount": 600.00,
+  "win_amount": 600.00,
+  "current_credit": 9600.00,
+  "date_time": "2026-05-04 15:05:00"
+}
+
+winner: player | dealer | tie | war
+bet_position: main | tie
+player_cards[0] = initial card, player_cards[1] = war card (if went to war)
+side_win: tie if tie bet won, null otherwise
+
+
+GET /api/v1/history/{game}/table/{id} — By Table
+Query Parameters (all optional):
+ParamTypeExampleNotestab_idstringTAB001Filter by playerdatedate2026-05-04Single day filterfromdatetime2026-05-04 08:00:00Range starttodatetime2026-05-04 20:00:00Range endwinnerstringbankerGame-specific winner valueper_pageint50Default 50pageint2Pagination
+Example Request:
+GET /api/v1/history/baccarat/table/1?date=2026-05-04&winner=banker&per_page=20&page=1
+Response:
+json{
+  "current_page": 1,
+  "data": [
+    {
+      "id": 101,
+      "shoe_no": 5,
+      "table_id": 1,
+      "tab_id": "TAB001",
+      "player_cards": ["Ah", "Kd", "3c"],
+      "banker_cards": ["2h", "9s"],
+      "winner": "banker",
+      "side_win": "player_pair",
+      "bet_position": "banker",
+      "bet_amount": 500.00,
+      "win_amount": 475.00,
+      "current_credit": 9975.00,
+      "date_time": "2026-05-04T14:32:10.000000Z"
+    }
+  ],
+  "first_page_url": "...",
+  "from": 1,
+  "last_page": 4,
+  "last_page_url": "...",
+  "per_page": 20,
+  "to": 20,
+  "total": 78
+}
+
+GET /api/v1/history/{game}/tab/{tabId} — By Player Tab
+Query Parameters:
+ParamTypeExampletable_idint1per_pageint25pageint1
+Example Request:
+GET /api/v1/history/blackjack/tab/TAB005?table_id=5&per_page=25
+Response: Same paginated structure as above, records scoped to that tab_id.
+
+GET /api/v1/history/{game}/{recordId} — Single Record
+Example Request:
+GET /api/v1/history/blackjack/42
+Response — Blackjack with split:
+json{
+  "id": 42,
+  "table_id": 5,
+  "tab_id": "TAB005",
+  "player_cards": ["8h", "8d"],
+  "dealer_cards": ["7c", "Ks"],
+  "double_amount": 0.00,
+  "insurance_amount": 0.00,
+  "split_hands": [
+    {
+      "split_no": 1,
+      "cards": ["8h", "3d", "Jc"],
+      "double_amount": 0,
+      "insurance_amount": 0,
+      "bet_amount": 500.00,
+      "winner": "player",
+      "win_amount": 1000.00
+    },
+    {
+      "split_no": 2,
+      "cards": ["8d", "Ac"],
+      "double_amount": 0,
+      "insurance_amount": 0,
+      "bet_amount": 500.00,
+      "winner": "player",
+      "win_amount": 1000.00
+    }
+  ],
+  "winner": "player",
+  "side_win": null,
+  "bet_position": "main",
+  "bet_amount": 500.00,
+  "win_amount": 2000.00,
+  "current_credit": 15500.00,
+  "date_time": "2026-05-04T14:56:00.000000Z"
+}
+
+Card Format Reference
+All cards use standard 2-character notation:
+RanksSuitsA 2 3 4 5 6 7 8 9 10 J Q Kh=Hearts d=Diamonds c=Clubs s=Spades
+Examples: "Ah" "Kd" "10c" "2s" "Jh"
+
+Valid {game} URL Segments
+URL segmentGamebaccaratBaccaratandarbaharAndar BahardragontigerDragon TigerthreecardpokerThree Card PokerblackjackBlackjackminiflushMini FlushcasinowarCasino War
