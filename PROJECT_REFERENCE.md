@@ -1005,9 +1005,10 @@ database/
 - [x] **Service:** `TabStatusService` — onBuyin, onCashout, onGameRound, onLockChange, onHeartbeat, buildRecoveryData
 - [x] **Routes:** Web `/tabs/*` (19 routes) + API `/api/v1/tabs/*` — all resolving, verified with route:list
 - [x] **All 28 migrations ran** — confirmed via migrate:status
-- [ ] **New views:** `resources/views/tabs/` (index list, create form, edit form)  ← **NEXT**
-- [ ] **Update:** Sidebar `/tabs` link active, nav highlight
-- [ ] **Update:** `GameHistoryController::store` — call `TabStatusService::onGameRound()` after each save
+- [x] **New views:** `resources/views/tabs/` — index (list table), create (form), edit (form + sidebar) ✅
+- [x] **Route model binding:** `{tab}` → `GameTable::class` in `AppServiceProvider::boot()`
+- [x] **Update:** Sidebar `/tabs` link active (done in Phase 1)
+- [ ] **Update:** `GameHistoryController::store` — call `TabStatusService::onGameRound()` after each save ← **NEXT**
 - [ ] **Update:** History API — add `limit`, `otp`, `from`, `to`, `page` params
 
 ### Phase 3b — Failure Management Implementation ✅ Core Complete
@@ -1064,5 +1065,10 @@ so basically we are building a cage system for cashier to Cashin and Cashout the
   thoroughly restored to the tabs from where it was left out. this is the most important part he has emphasised on. add this concept to the the phase to be
   implemented
 
+
+Remaining items:
+
+  1. GameHistoryController::store → hook TabStatusService::onGameRound() after each round save
+  2. History API — add limit, otp, from, to, page filter params
 
 *Maintained by AI development assistant. Update after every significant change.*
