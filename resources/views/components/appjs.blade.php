@@ -441,49 +441,66 @@ placeholder="Multiplier">
     const chipPresetSelect = document.getElementById('chipPresetSelect');
 
     // ── Game type change ──────────────────────────────────────────────────
-    if (gameTypeSelect) gameTypeSelect.addEventListener('change', function() {
-        const code = this.options[this.selectedIndex] ? this.options[this.selectedIndex].dataset.code : null;
-console.log('Selected game type code:', code);
-        // hide all game field panels
-        document.querySelectorAll('.game-fields').forEach(el => el.style.display = 'none');
+    if (gameTypeSelect && gameTypeSelect.tagName === 'SELECT') {
+        gameTypeSelect.addEventListener('change', function() {
+            const code = this.options[this.selectedIndex] ? this.options[this.selectedIndex].dataset.code : null;
+            // hide all game field panels
+            document.querySelectorAll('.game-fields').forEach(el => el.style.display = 'none');
 
-        // swap burn card label for Andar Bahar
-        const burnCardLabel = document.getElementById('burnCardLabel');
-        if (burnCardLabel) {
-            burnCardLabel.textContent = code === 'AB' ? 'Reset Threshold' : 'Burn Card every round';
-        }
+            // swap burn card label for Andar Bahar
+            const burnCardLabel = document.getElementById('burnCardLabel');
+            if (burnCardLabel) {
+                burnCardLabel.textContent = code === 'AB' ? 'Reset Threshold' : 'Burn Card every round';
+            }
+            const burnCardCol = document.getElementById('burnCardCol');
+            if (burnCardCol) {
+                burnCardCol.style.display = code === 'ROL' ? 'none' : 'block';
+            }
 
-        if (code) {
-            document.getElementById('gameConfigSection').style.display = 'block';
-            document.getElementById('payoutSection').style.display = 'block';
+            if (code) {
+                const configSec = document.getElementById('gameConfigSection');
+                if (configSec) configSec.style.display = 'block';
+                const payoutSec = document.getElementById('payoutSection');
+                if (payoutSec) payoutSec.style.display = 'block';
 
-            const panel = document.getElementById('fields-' + code);
-            if (panel) panel.style.display = 'block';
+                const panel = document.getElementById('fields-' + code);
+                if (panel) panel.style.display = 'block';
 
-            // load payout rules
-            console.log('Loading payout rules for game type ID:', this.value);
-            loadPayoutRules(this.value);
-        } else {
-            document.getElementById('gameConfigSection').style.display = 'none';
-            document.getElementById('payoutSection').style.display = 'none';
-        }
-    });
+                // load payout rules
+                loadPayoutRules(this.value);
+            } else {
+                const configSec = document.getElementById('gameConfigSection');
+                if (configSec) configSec.style.display = 'none';
+                const payoutSec = document.getElementById('payoutSection');
+                if (payoutSec) payoutSec.style.display = 'none';
+            }
+        });
+    }
 
     // ── Chip preset preview ───────────────────────────────────────────────
-    if (chipPresetSelect) chipPresetSelect.addEventListener('change', function() {
-        const opt = this.options[this.selectedIndex];
+    function updateChipPreview() {
+        if (!chipPresetSelect || !chipPresetSelect.value) return;
+        const opt = chipPresetSelect.options[chipPresetSelect.selectedIndex];
+        if (!opt) return;
         const chips = JSON.parse(opt.dataset.chips || '[]');
         const base = opt.dataset.base || '—';
 
         document.querySelectorAll('.chip-preview-val').forEach((el, i) => {
             el.textContent = chips[i] !== undefined ? chips[i] : '—';
         });
-        document.getElementById('basePreview').textContent = base;
-    });
+        const basePreview = document.getElementById('basePreview');
+        if (basePreview) basePreview.textContent = base;
+    }
+
+    if (chipPresetSelect) {
+        chipPresetSelect.addEventListener('change', updateChipPreview);
+        updateChipPreview();
+    }
 
     // ── Felt color label ──────────────────────────────────────────────────
-    document.getElementById('feltColor').addEventListener('input', function() {
-        document.getElementById('feltColorLabel').textContent = this.value;
+    document.getElementById('feltColor')?.addEventListener('input', function() {
+        const lbl = document.getElementById('feltColorLabel');
+        if (lbl) lbl.textContent = this.value;
     });
 
     // ── Load payout rules via AJAX ────────────────────────────────────────
@@ -494,7 +511,7 @@ console.log('Selected game type code:', code);
         if (!rules || !rules.length) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="4" class="text-muted">
+                    <td colspan="5" class="text-muted">
                         No payout rules defined for this game.
                     </td>
                 </tr>`;
@@ -550,7 +567,7 @@ syncJackpotSeeds();
     }).fail(function () {
         document.getElementById('payoutRulesBody').innerHTML = `
             <tr>
-                <td colspan="4" class="text-danger">Failed to load payout rules.</td>
+                <td colspan="5" class="text-danger">Failed to load payout rules.</td>
             </tr>`;
     });
 }
@@ -560,14 +577,34 @@ document.getElementById('tableName')?.addEventListener('input', function () {
     if (configName) configName.value = this.value;
 });
 
+// ── Validation Helpers ────────────────────────────────────────────────
+function setError(el, msg) {
+    if (!el) return;
+    el.classList.add('is-invalid');
+    let feedback = el.parentNode.querySelector('.invalid-feedback');
+    if (!feedback) {
+        feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        el.parentNode.appendChild(feedback);
+    }
+    feedback.textContent = msg;
+}
+
+function clearError(el) {
+    if (!el) return;
+    el.classList.remove('is-invalid');
+    const feedback = el.parentNode.querySelector('.invalid-feedback');
+    if (feedback) feedback.textContent = '';
+}
+
 // ── Pipe value preview renderer ───────────────────────────────────────
 function renderPipeTags(inputId, previewId, color = '#ffc107') {
     const input   = document.getElementById(inputId);
     const preview = document.getElementById(previewId);
     if (!input || !preview) return;
 
-    input.addEventListener('input', function () {
-        const parts = this.value.split('|').map(v => v.trim()).filter(v => v !== '');
+    function update() {
+        const parts = input.value.split('|').map(v => v.trim()).filter(v => v !== '');
         preview.innerHTML = parts.map(v => {
             const isValid = !isNaN(v) && parseFloat(v) > 0;
             return `<span style="
@@ -578,22 +615,23 @@ function renderPipeTags(inputId, previewId, color = '#ffc107') {
                         ${v}
                     </span>`;
         }).join('');
-    });
+    }
+
+    input.addEventListener('input', update);
+    update();
 }
 
 renderPipeTags('minBet', 'minBetPreview');
 renderPipeTags('maxBet', 'maxBetPreview');
 
 // ── Update min/max pairs in submit validation ─────────────────────────
-// Remove old minBet/maxBet from minMaxPairs array since they're now pipe values
-// handled separately below
 const minMaxPairs = [
-    // remove { min: 'minBet', max: 'maxBet', label: 'Bet' } ← delete this line
-    { min: 'sideMinBet', max: 'sideMaxBet', label: 'Side Bet'  },
-    { min: 'tieMin',     max: 'tieMax',     label: 'Tie'       },
-    { min: 'sideMin',    max: 'sideMax',    label: 'Side'      },
-    { min: 'pairMin',    max: 'pairMax',    label: 'Pair'      },
-    { min: 'hlMin',      max: 'hlMax',      label: 'H/L'       },
+    { min: 'sideMinBet',    max: 'sideMaxBet',    label: 'Side Bet'  },
+    { min: 'sideMinBetROL', max: 'sideMaxBetROL', label: 'Side Bet'  },
+    { min: 'tieMin',        max: 'tieMax',        label: 'Tie'       },
+    { min: 'sideMin',       max: 'sideMax',       label: 'Side'      },
+    { min: 'pairMin',       max: 'pairMax',       label: 'Pair'      },
+    { min: 'hlMin',         max: 'hlMax',         label: 'H/L'       },
 ];
 
 // ── Pipe min/max cross validation on submit ───────────────────────────
@@ -798,6 +836,9 @@ document.addEventListener('change', function (e) {
 
 // ── Init on page load ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function () {
+    if (gameTypeSelect && gameTypeSelect.tagName === 'SELECT' && gameTypeSelect.value) {
+        gameTypeSelect.dispatchEvent(new Event('change'));
+    }
     syncB6State();
     syncJackpotSeeds();
 });

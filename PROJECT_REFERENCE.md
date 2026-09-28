@@ -1,7 +1,7 @@
 # xplay — Virtuals Tab-Based Cage & Configuration System
 
 > **Reference Document** — Living document. Updated as development progresses.
-> Last Updated: 2026-09-18 | Phase 1 ✅ · Phase 2 ✅ · Phase 3 DB Layer ✅ · Phase 3 Controllers/Views in progress
+> Last Updated: 2026-09-28 | Phase 1 ✅ · Phase 2 ✅ · Phase 3 Backend & Frontend ✅ · Tab Config Replication ✅ · Recovery & API Suite ✅
 
 ---
 
@@ -395,6 +395,39 @@ Kafka::createConsumer(['tab.game.history'])
 - In development: use `bitnami/kafka` Docker image.
 - Partition key = `tab_id` — ensures message ordering per tab.
 - Retention: 7 days (allows terminal to replay missed messages on reconnect).
+
+### 4.8 Tab Configuration & Presets (Replicated from gamemgt for AB, BAC, ROL)
+
+The Tab Configuration module (`/tabs`, [`TabController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/TabController.php)) provides comprehensive configuration management replicated from `gamemgt` specifically tailored for the 3 active games: **Baccarat (BAC)**, **Andar Bahar (AB)**, and **Roulette (ROL)**.
+
+#### 1. Polymorphic Preset Architecture
+Instead of storing flattened or generic preset fields, configuration is stored in dedicated game-specific preset tables and polymorphically linked via `game_table_configs`:
+- `baccarat_presets` $\rightarrow$ [`BaccaratPreset`](file:///C:/xampp/htdocs/xplay/app/Models/BaccaratPreset.php)
+- `andarbahar_presets` $\rightarrow$ [`AndarBaharPreset`](file:///C:/xampp/htdocs/xplay/app/Models/AndarBaharPreset.php)
+- `roulette_presets` $\rightarrow$ [`RoulettePreset`](file:///C:/xampp/htdocs/xplay/app/Models/RoulettePreset.php)
+- Pivot: `game_table_configs` records `table_id`, `preset_type` (full class name), and `preset_id`.
+
+#### 2. Multi-Tier Pipe-Separated Bet Limits & Bet Index
+- Bet limits are entered as pipe-delimited values (e.g. `10|25|50` for min bet and `500|1000|2000` for max bet).
+- The `bet_index` column on `game_tables` (1-based index) selects the currently active tier.
+- Client-side and server-side validation (`validateMinMaxPairs`) guarantees that:
+  - The number of tiers in `min_bet` equals the number of tiers in `max_bet`.
+  - For every tier $i$, $\text{max\_bet}_i > \text{min\_bet}_i$.
+
+#### 3. Game-Specific Configuration Differences
+- **Baccarat (BAC):** Supports `burn_card` (burn card per round), `side_min_bet`, `side_max_bet`, `tie_min`/`tie_max`, `pair_min`/`pair_max`, `super6_min`/`super6_max`, and commission toggles (`baccarat_6_commission` with dynamic calculation of `commission` and 0.95x / 0.50x payout multipliers).
+- **Andar Bahar (AB):** `burn_card` input dynamically acts as **Reset Threshold** (cards threshold before shoe reset). Supports side limits (`andar_min`/`max`, `bahar_min`/`max`, `side_min`/`max`).
+- **Roulette (ROL):** `burn_card` is omitted / not applicable. Supports `roulette_type` (`european` vs `american`), straight-up/split limits, and side bet limits.
+
+#### 4. Payout Rule Overrides & Jackpot Seed Values
+- On tab creation and update, all payout rules for the game type are populated.
+- Individual rules can be toggled active/inactive per tab in `game_table_payout_rules`.
+- For jackpot rules (`is_jackpot = true`), custom seed values (`seed_value`) are stored and synchronized.
+
+#### 5. User Interface (Blade Views)
+- **Create Form ([`tabs/create.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/tabs/create.blade.php)):** 4 clean sections (Tab Details, Chip Preset with live preview, Game Configuration with pipe badge tags, Payout Rules with switch toggles and jackpot seed inputs).
+- **Edit Form ([`tabs/edit.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/tabs/edit.blade.php)):** Full pre-filled 4-section layout with right-side live status and terminal state management sidebar.
+- **Index List ([`tabs/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/tabs/index.blade.php)):** Compact machine management table displaying lock state, connection dot, MAC address, active session OTP, credits, shift in/out, and linked preset name.
 
 ---
 
@@ -794,59 +827,70 @@ History Tables (per game — keep existing structure, add game_no index):
 
 ---
 
-## 8. API Endpoints — Full Map
+## 8. API Endpoints — Full Map (Postman Verified)
 
-### Tab Management (Phase 3)
-```
-GET    /api/v1/tabs/active                 ← Active tabs list
-GET    /api/v1/tabs/by-mac/{mac}           ← Resolve tab by MAC
-GET    /api/v1/tabs/{id}/configuration     ← Tab full config (preset, payout rules, chips)
-GET    /api/v1/tabs/{id}/status            ← tab_statuses snapshot (recovery endpoint)
-POST   /api/v1/tabs/{id}/register-mac      ← Bind MAC to tab
-POST   /api/v1/tabs/{id}/unregister-mac    ← Unbind MAC
-POST   /api/v1/tabs/{id}/enable            ← Enable tab
-POST   /api/v1/tabs/{id}/disable           ← Disable tab
-POST   /api/v1/tabs/{id}/lock              ← Lock tab
-POST   /api/v1/tabs/{id}/unlock            ← Unlock tab
-GET    /api/v1/tabs/{id}/bet-index         ← Fetch current bet index
-POST   /api/v1/tabs/{id}/bet-index         ← Set bet index
+### 8.1 Tab Cage Operations & Terminal Recovery (Phase 3 Core)
+```http
+GET    /api/v1/tabs/statuses                 ← All tabs live status & shift aggregates (Cashier grid)
+GET    /api/v1/tabs/{id}/status              ← Full recovery state blob (Terminal reconnect / restore)
+POST   /api/v1/tabs/{id}/heartbeat           ← Terminal liveness ping & balance verification (every 30s)
+POST   /api/v1/tabs/{id}/buyin               ← Cashier processes buyin: credits tab, generates OTP (Idempotent)
+POST   /api/v1/tabs/{id}/verify-otp          ← Terminal verifies OTP entered by player
+POST   /api/v1/tabs/{id}/cashout             ← Cashier processes cashout: zeroes balance, ends session (Idempotent)
+GET    /api/v1/tabs/{id}/sessions            ← Paginated session history for a tab
 ```
 
-### Session / OTP (Phase 3)
-```
-POST   /api/v1/tabs/{id}/session/start     ← Verify OTP, activate session (called by terminal)
-GET    /api/v1/tabs/{id}/session/current   ← Get current active session
-POST   /api/v1/tabs/{id}/session/end       ← End session on cashout
-```
-
-### Ledger (Phase 3 — simplified)
-```
-POST   /api/v1/ledger/txn                  ← Post BUYIN or CASHOUT (idempotent)
-GET    /api/v1/ledger/tab/{tab_id}         ← All txns for a tab
-GET    /api/v1/ledger/tab/{tab_id}/summary ← Balance summary
-GET    /api/v1/ledger/pending              ← Pending/unprocessed txns
+### 8.2 Tab / Station Configuration & Multi-Tier Limits
+```http
+GET    /api/v1/game-tables                   ← List all active tables with configs, chip sets, & rules
+GET    /api/v1/game-tables/{id}              ← Single tab/table formatted configuration
+GET    /api/v1/game-tables/active            ← List active tables
+GET    /api/v1/game-tables/by-mac/{mac}      ← Resolve table by hardware MAC address
+GET    /api/v1/game-tables/{id}/configuration← Full configuration object for station
+POST   /api/v1/game-tables/{id}/register-mac ← Hardware terminal binds MAC to tab
+GET    /api/v1/game-tables/{id}/bet-index    ← Current bet index tier & active [min, max]
+POST   /api/v1/game-tables/{id}/bet-index    ← Switch active bet tier (Level 1..N)
 ```
 
-### History (Phase 2/3)
-```
-GET    /api/v1/history/{game}              ← Parameterised fetch
-  ?tab_id=TAB-007
-  &date=2026-09-13
-  &otp=482931
-  &limit=100
-  &page=1
-  &sort=desc
-  &winner=banker
-
-POST   /api/v1/history/{game}              ← Terminal posts game round result
-GET    /api/v1/history/{game}/{recordId}   ← Single round
+### 8.3 Game History & Result Engine
+```http
+POST   /api/v1/history/{game}                ← Post round outcome (game = baccarat | andarbahar | roulette)
+GET    /api/v1/history/{game}/table/{id}     ← Round records by station table ID
+GET    /api/v1/history/{game}/tab/{tabId}    ← Round records by player terminal tab ID
+GET    /api/v1/history/{game}/{recordId}     ← Single round outcome details
 ```
 
-### Game Day (Evaluate)
+### 8.4 Cage Ledger & Financial Audit
+```http
+POST   /api/v1/ledger/txn                    ← Record cage transaction (BUYIN, CASHOUT, FILL, etc.)
+GET    /api/v1/ledger/table/{table_id}       ← Transactions by station table ID
+GET    /api/v1/ledger/table/{table_id}/summary ← Shift movement summary (total in, out, net)
+GET    /api/v1/ledger/tab/{tab_id}           ← Transactions by player terminal tab ID
+GET    /api/v1/ledger/txn/{txn_id}           ← Single transaction detail
+POST   /api/v1/ledger/txn/{txn_id}/claim     ← Claim transaction
+POST   /api/v1/ledger/txn/{txn_id}/complete  ← Complete transaction
+GET    /api/v1/ledger/pending                ← List all pending/unprocessed transactions
 ```
-GET    /api/v1/game-day/current
-POST   /api/v1/game-day/start
-POST   /api/v1/game-day/close
+
+### 8.5 Game Day & Metadata
+```http
+GET    /api/v1/game-day/current              ← Current active game day
+POST   /api/v1/game-day/start                ← Start new game day
+POST   /api/v1/game-day/close                ← Close current game day
+GET    /api/v1/game-types                    ← Active game types (BAC, AB, ROL)
+GET    /api/v1/game-types/{id}               ← Single game type details
+GET    /api/v1/payout-rules/{gameTypeId}     ← Payout rules for game type (with multipliers & jackpot flags)
+GET    /api/v1/payout-rules/game-type/{id}   ← Payout rules alias
+GET    /api/v1/users                         ← Active cashiers/users
+```
+
+### 8.6 Table Float Sessions (Live Session State)
+```http
+POST   /api/v1/tables/{id}/open              ← Open table float session
+POST   /api/v1/tables/{id}/close             ← Close table float session
+GET    /api/v1/tables/{id}/session           ← Current float session details
+GET    /api/v1/tables/{id}/history           ← Historical float sessions
+GET    /api/v1/game-tables/{id}/float        ← Current live float balance
 ```
 
 ---
@@ -1022,6 +1066,17 @@ database/
 - [ ] **Heartbeat monitoring job:** Artisan command to flag tabs with `last_synced_at` > 2 min as `disconnected` ← Phase 4
 - [ ] **Kafka publish guard:** Events after DB commit — Phase 4
 
+### Phase 3c — Tab Configuration Replication & Postman Verification ✅ COMPLETE (2026-09-28)
+- [x] **Preset Persistence:** Replicated `gamemgt` preset saving into `baccarat_presets`, `andarbahar_presets`, `roulette_presets` via `TabController`
+- [x] **Polymorphic Pivot:** Correctly links `GameTableConfig` with `preset_type` and `preset_id` on store and update
+- [x] **Multi-Tier Limit Validation:** Enforced `PipeSeparatedNumbers` and `validateMinMaxPairs` ensuring equal tier count and `max > min`
+- [x] **Commission & Game Rules:** B6 commission syncing (0.95x / 0.50x), AB reset threshold in `burn_card`, Roulette type (`european`/`american`)
+- [x] **Payout Rule Syncing:** Overrides and jackpot seed values persisted into `game_table_payout_rules`
+- [x] **Blade View Architecture:** 4-section layout implemented for `tabs/create.blade.php`, `tabs/edit.blade.php`, with live chip & limit tags preview in `components/appjs.blade.php`
+- [x] **Tabs List Display:** Enhanced `tabs/index.blade.php` with linked preset name badge
+- [x] **GameTableController API Suite:** Implemented `formatTableResponse`, `formatPresetFields`, `parsePipeValues`, `apiActive`, `apiByMac`, `apiConfiguration`
+- [x] **Automated Verification:** Verified all 42 API routes via PHP test suites with 100% pass rate
+
 ### Phase 4 — Kafka Integration
 - [ ] Install `mateusjunges/laravel-kafka`
 - [ ] Configure Kafka broker connection (`.env` keys)
@@ -1056,15 +1111,11 @@ database/
 | 2026-09-13 | `tab_statuses` as snapshot table | Recovery without expensive joins or re-aggregation |
 | 2026-09-13 | Kafka for real-time events | Low-latency terminal updates; guaranteed delivery; replay support |
 | 2026-09-13 | History API with `limit`/`otp`/`from`/`to` params | Client requirement for flexible data retrieval |
+| 2026-09-28 | Replicate Tab Presets & Config from gamemgt for AB, BAC, ROL | Store presets in individual tables (`baccarat_presets`, `andarbahar_presets`, `roulette_presets`) linked polymorphically in `game_table_configs` |
+| 2026-09-28 | Strict pipe tier validation | `validateMinMaxPairs` validates matching tier count and `max > min` for every tier |
+| 2026-09-28 | Inline response formatting on GameTableController | Added `formatTableResponse` and fixed `apiActive`, `apiByMac`, and `apiConfiguration` endpoints for full Postman compatibility |
 
 ---
-
-so basically we are building a cage system for cashier to Cashin and Cashout the about to the tab. also configure the tab and generate the reports, maintain
-  ledger transactions and history.
-  most importantly, the client want to handle the security aspects of the system like failure management. in case of a failure, the current data/session should be
-  thoroughly restored to the tabs from where it was left out. this is the most important part he has emphasised on. add this concept to the the phase to be
-  implemented
-
 
 Remaining items:
 

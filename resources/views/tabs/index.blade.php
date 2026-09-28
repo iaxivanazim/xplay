@@ -206,6 +206,11 @@
                         style="background:{{ $gameColor }}22; color:{{ $gameColor }}; border:1px solid {{ $gameColor }}; font-size:11px;">
                         {{ $tab->gameType?->code ?? '—' }}
                     </span>
+                    @if($tab->config?->preset)
+                        <div style="font-size:10px; color:#888; margin-top:2px;" title="Preset: {{ $tab->config->preset->name }}">
+                            {{ \Illuminate\Support\Str::limit($tab->config->preset->name, 14) }}
+                        </div>
+                    @endif
                 </td>
 
                 {{-- Denomination --}}

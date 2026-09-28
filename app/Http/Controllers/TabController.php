@@ -4,9 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\GameTable;
 use App\Models\GameType;
+use App\Models\Chip;
+use App\Models\GameTableConfig;
+use App\Models\BaccaratPreset;
+use App\Models\AndarBaharPreset;
+use App\Models\RoulettePreset;
 use App\Models\PayoutRule;
 use App\Models\GameTablePayoutRule;
-use App\Models\GameTableConfig;
 use App\Models\TabStatus;
 use App\Services\TabStatusService;
 use App\Rules\PipeSeparatedNumbers;
@@ -16,16 +20,43 @@ use Illuminate\Support\Facades\DB;
 /**
  * TabController — manages the Tabs Configuration module.
  *
- * Two responsibilities:
- *   1. CRUD for tabs (add/edit/delete tab configuration)
- *   2. Tab state management (enable/disable, lock/unlock/break, MAC register)
- *
- * All tabs of the same game_type share the same default payout rules.
- * No Chips module — denomination is a decimal on the tab itself.
+ * Responsibilities:
+ *   1. Full CRUD for tabs, presets (AB, BAC, ROL), and payout rules.
+ *   2. Tab state management (enable/disable, lock/unlock/break, MAC register).
  */
 class TabController extends Controller
 {
     public function __construct(private TabStatusService $statusService) {}
+
+    private function resolvePresetModel(int $gameTypeId): string
+    {
+        return match (GameType::findOrFail($gameTypeId)->code) {
+            'BAC'   => BaccaratPreset::class,
+            'AB'    => AndarBaharPreset::class,
+            'ROL'   => RoulettePreset::class,
+            default => throw new \Exception("Unknown game type: " . $gameTypeId),
+        };
+    }
+
+    private function validateMinMaxPairs(string $minBet, string $maxBet): void
+    {
+        $mins = array_map('trim', explode('|', $minBet));
+        $maxs = array_map('trim', explode('|', $maxBet));
+
+        if (count($mins) !== count($maxs)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'config.max_bet' => 'Min and Max bet must have the same number of values.'
+            ]);
+        }
+
+        foreach ($mins as $i => $min) {
+            if ((float) $maxs[$i] <= (float) $min) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'config.max_bet' => "Max bet value #" . ($i + 1) . " ({$maxs[$i]}) must be greater than min bet ({$min})."
+                ]);
+            }
+        }
+    }
 
     // ── Index ─────────────────────────────────────────────────────
 
@@ -34,7 +65,7 @@ class TabController extends Controller
         $gameTypeFilter = $request->input('game_type');
         $statusFilter   = $request->input('status', 'all'); // all | active | inactive
 
-        $query = GameTable::with(['gameType', 'tabStatus', 'activeSession', 'config.preset'])
+        $query = GameTable::with(['gameType', 'tabStatus', 'activeSession', 'config.preset.chipPreset'])
             ->orderBy('table_name');
 
         if ($gameTypeFilter) {
@@ -61,36 +92,112 @@ class TabController extends Controller
 
     public function create()
     {
-        $gameTypes = GameType::where('status', 1)->get();
-        return view('tabs.create', compact('gameTypes'));
+        $gameTypes   = GameType::where('status', 1)->get();
+        $chipPresets = Chip::where('status', 1)->get();
+        return view('tabs.create', compact('gameTypes', 'chipPresets'));
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'table_name'    => 'required|string|max:100|unique:game_tables,table_name',
-            'game_type_id'  => 'required|exists:game_types,id',
-            'active_mac'    => 'nullable|string|max:17|regex:/^([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})$/',
-            'denomination'  => 'nullable|numeric|min:0.0001',
-            'bet_index'     => 'nullable|integer|min:1|max:9',
+            'table_name'          => 'required|string|max:255|unique:game_tables,table_name',
+            'game_type_id'        => 'required|exists:game_types,id',
+            'active_mac'          => 'nullable|string|max:255',
+            'denomination'        => 'nullable|numeric|min:0.0001',
+            'bet_index'           => 'nullable|integer|min:1|max:9',
+            'float'               => 'nullable|numeric',
+            'chip_preset_id'      => 'required|exists:chips,id',
+            'config.name'         => 'required|string|max:255',
+            'config.min_bet'      => ['required', new PipeSeparatedNumbers],
+            'config.max_bet'      => ['required', new PipeSeparatedNumbers],
+            'config.burn_card'    => 'nullable|integer|min:0',
+            'config.side_min_bet' => 'nullable|numeric|min:0',
+            'config.side_max_bet' => 'nullable|numeric|min:0',
+            'config.roulette_type'=> 'nullable|in:european,american',
         ]);
 
+        $this->validateMinMaxPairs(
+            $request->input('config.min_bet'),
+            $request->input('config.max_bet')
+        );
+
+        if ($request->filled('config.side_min_bet') && $request->filled('config.side_max_bet')) {
+            if ((float)$request->input('config.side_max_bet') <= (float)$request->input('config.side_min_bet')) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'config.side_max_bet' => 'Side max bet must be greater than side min bet.'
+                ]);
+            }
+        }
+
         DB::transaction(function () use ($request) {
+            // 1. Create GameTable (tab)
             $tab = GameTable::create([
                 'table_name'   => $request->table_name,
                 'game_type_id' => $request->game_type_id,
                 'active_mac'   => $request->active_mac ?: null,
                 'denomination' => $request->denomination ?? 1.0,
                 'bet_index'    => $request->bet_index ?? 1,
-                'float'        => 0,
+                'float'        => $request->float ?? 0,
                 'status'       => true,
                 'lock_status'  => 'unlocked',
             ]);
 
-            // Apply default payout rules for this game type
-            $this->applyDefaultPayoutRules($tab);
+            // 2. Resolve preset model
+            $gameType = GameType::findOrFail($request->game_type_id);
+            $presetModel = $this->resolvePresetModel($request->game_type_id);
 
-            // Initialise tab_statuses row (failure recovery baseline)
+            // 3. Create game-specific preset
+            $configData = array_merge(
+                $request->input('config', []),
+                ['chip_preset_id' => $request->chip_preset_id]
+            );
+
+            // sync commission for baccarat
+            if ($gameType->code === 'BAC') {
+                if (isset($configData['baccarat_6_commission'])) {
+                    $configData['commission'] = (bool)$configData['baccarat_6_commission'];
+                }
+            } elseif ($gameType->code === 'ROL') {
+                unset($configData['burn_card']);
+            }
+
+            $preset = $presetModel::create($configData);
+
+            // 4. Link to pivot (game_table_configs)
+            GameTableConfig::create([
+                'table_id'    => $tab->id,
+                'preset_type' => $preset::class,
+                'preset_id'   => $preset->id,
+                'assigned_by' => auth()->id(),
+                'assigned_at' => now(),
+            ]);
+
+            // 5. Payout rules
+            $allRules = PayoutRule::where('game_type_id', $request->game_type_id)->pluck('payout_id');
+            $overrides = $request->input('payout_overrides', []);
+
+            $payoutData = $allRules->map(function ($payoutId) use ($overrides, $tab) {
+                return [
+                    'table_id'   => $tab->id,
+                    'payout_id'  => $payoutId,
+                    'is_active'  => isset($overrides[$payoutId]) ? 1 : 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            })->all();
+
+            GameTablePayoutRule::insert($payoutData);
+
+            $seedValues = $request->input('seed_values', []);
+            foreach ($seedValues as $payoutId => $seedValue) {
+                if ($seedValue === null || $seedValue === '') continue;
+
+                GameTablePayoutRule::where('table_id', $tab->id)
+                    ->where('payout_id', $payoutId)
+                    ->update(['seed_value' => $seedValue]);
+            }
+
+            // 6. Initialise tab_statuses row (failure recovery baseline)
             $this->statusService->initialise($tab);
         });
 
@@ -102,16 +209,18 @@ class TabController extends Controller
 
     public function edit(GameTable $tab)
     {
-        $tab->load(['gameType', 'tabStatus', 'activeSession', 'config.preset', 'payoutRules.payoutRule']);
+        $tab->load(['gameType', 'tabStatus', 'activeSession', 'config.preset.chipPreset', 'payoutRules.payoutRule']);
         $gameTypes   = GameType::where('status', 1)->get();
+        $chipPresets = Chip::where('status', 1)->get();
         $payoutRules = PayoutRule::where('game_type_id', $tab->game_type_id)->get()->map(function ($rule) use ($tab) {
             $saved = GameTablePayoutRule::where('table_id', $tab->id)
                 ->where('payout_id', $rule->payout_id)->first();
             $rule->is_active = $saved ? $saved->is_active : $rule->is_active;
+            $rule->seed_value = $saved?->seed_value;
             return $rule;
         });
 
-        return view('tabs.edit', compact('tab', 'gameTypes', 'payoutRules'));
+        return view('tabs.edit', compact('tab', 'gameTypes', 'chipPresets', 'payoutRules'));
     }
 
     public function update(Request $request, GameTable $tab)
@@ -122,26 +231,187 @@ class TabController extends Controller
         }
 
         $request->validate([
-            'table_name'   => 'required|string|max:100|unique:game_tables,table_name,' . $tab->id,
-            'denomination' => 'nullable|numeric|min:0.0001',
-            'bet_index'    => 'nullable|integer|min:1|max:9',
+            'table_name'          => 'required|string|max:255|unique:game_tables,table_name,' . $tab->id,
+            'game_type_id'        => 'nullable|exists:game_types,id',
+            'active_mac'          => 'nullable|string|max:255',
+            'denomination'        => 'nullable|numeric|min:0.0001',
+            'bet_index'           => 'nullable|integer|min:1|max:9',
+            'float'               => 'nullable|numeric',
+            'chip_preset_id'      => 'required|exists:chips,id',
+            'config.name'         => 'required|string|max:255',
+            'config.min_bet'      => ['required', new PipeSeparatedNumbers],
+            'config.max_bet'      => ['required', new PipeSeparatedNumbers],
+            'config.burn_card'    => 'nullable|integer|min:0',
+            'config.side_min_bet' => 'nullable|numeric|min:0',
+            'config.side_max_bet' => 'nullable|numeric|min:0',
+            'config.roulette_type'=> 'nullable|in:european,american',
         ]);
 
+        $this->validateMinMaxPairs(
+            $request->input('config.min_bet'),
+            $request->input('config.max_bet')
+        );
+
+        if ($request->filled('config.side_min_bet') && $request->filled('config.side_max_bet')) {
+            if ((float)$request->input('config.side_max_bet') <= (float)$request->input('config.side_min_bet')) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'config.side_max_bet' => 'Side max bet must be greater than side min bet.'
+                ]);
+            }
+        }
+
         DB::transaction(function () use ($request, $tab) {
+            // 1. Update GameTable
             $tab->update([
-                'table_name'  => $request->table_name,
-                'denomination'=> $request->denomination ?? $tab->denomination,
-                'bet_index'   => $request->bet_index ?? $tab->bet_index,
+                'table_name'   => $request->table_name,
+                'active_mac'   => $request->active_mac ?: null,
+                'denomination' => $request->denomination ?? $tab->denomination,
+                'bet_index'    => $request->bet_index ?? $tab->bet_index,
+                'float'        => $request->float ?? $tab->float,
             ]);
 
-            // Sync payout rule overrides if submitted
-            if ($request->has('payout_overrides')) {
-                $this->syncPayoutRules($tab, $request->input('payout_overrides', []));
+            // 2. Update or create preset
+            $config = $tab->config;
+            $configData = array_merge(
+                $request->input('config', []),
+                ['chip_preset_id' => $request->chip_preset_id]
+            );
+
+            $gameType = $tab->gameType;
+            if ($gameType?->code === 'BAC') {
+                if (isset($configData['baccarat_6_commission'])) {
+                    $configData['commission'] = (bool)$configData['baccarat_6_commission'];
+                }
+            } elseif ($gameType?->code === 'ROL') {
+                unset($configData['burn_card']);
+            }
+
+            if ($config && $config->preset) {
+                $config->preset->update($configData);
+            } else {
+                $presetModel = $this->resolvePresetModel($tab->game_type_id);
+                $preset = $presetModel::create($configData);
+
+                if ($config) {
+                    $config->update([
+                        'preset_type' => $preset::class,
+                        'preset_id'   => $preset->id,
+                        'assigned_by' => auth()->id(),
+                        'assigned_at' => now(),
+                    ]);
+                } else {
+                    GameTableConfig::create([
+                        'table_id'    => $tab->id,
+                        'preset_type' => $preset::class,
+                        'preset_id'   => $preset->id,
+                        'assigned_by' => auth()->id(),
+                        'assigned_at' => now(),
+                    ]);
+                }
+            }
+
+            // 3. Sync payout rules
+            $allRules = PayoutRule::where('game_type_id', $tab->game_type_id)->pluck('payout_id');
+            $overrides = $request->input('payout_overrides', []);
+            $seedValues = $request->input('seed_values', []);
+
+            foreach ($allRules as $payoutId) {
+                GameTablePayoutRule::updateOrCreate(
+                    [
+                        'table_id'  => $tab->id,
+                        'payout_id' => $payoutId,
+                    ],
+                    [
+                        'is_active' => isset($overrides[$payoutId]) ? 1 : 0,
+                    ]
+                );
+            }
+
+            foreach ($seedValues as $payoutId => $seedValue) {
+                GameTablePayoutRule::where('table_id', $tab->id)
+                    ->where('payout_id', $payoutId)
+                    ->update([
+                        'seed_value' => ($seedValue !== '' && $seedValue !== null) ? $seedValue : null
+                    ]);
+            }
+
+            // 4. Update tab status if exists
+            if ($tab->tabStatus) {
+                $tab->tabStatus->update([
+                    'active_mac'     => $tab->active_mac,
+                    'last_synced_at' => now(),
+                ]);
             }
         });
 
         return redirect()->route('tabs.index')
-            ->with('success', "Tab '{$tab->table_name}' updated.");
+            ->with('success', "Tab '{$tab->table_name}' configuration updated.");
+    }
+
+    // ── Bet Index (API & helpers) ─────────────────────────────────
+
+    public function getBetIndex($id)
+    {
+        $table = GameTable::findOrFail($id);
+        $preset = $table->config?->preset;
+
+        if (!$preset) {
+            return response()->json([
+                'success'      => false,
+                'table_id'     => $table->id,
+                'message'      => 'No preset configured for this tab.',
+            ], 404);
+        }
+
+        $mins = explode('|', $preset->min_bet);
+        $maxs = explode('|', $preset->max_bet);
+        $total = count($mins);
+        $currentIndex = max(1, min((int)($table->bet_index ?? 1), $total));
+        $i = $currentIndex - 1;
+
+        return response()->json([
+            'success'      => true,
+            'table_id'     => $table->id,
+            'bet_index'    => $currentIndex,
+            'total_tiers'  => $total,
+            'active_range' => [
+                'min' => (float)$mins[$i],
+                'max' => (float)$maxs[$i],
+            ],
+            'all_ranges' => array_map(fn($idx) => [
+                'index' => $idx + 1,
+                'min'   => (float)$mins[$idx],
+                'max'   => (float)$maxs[$idx],
+            ], range(0, $total - 1)),
+        ]);
+    }
+
+    public function setBetIndex(Request $request, $id)
+    {
+        $table = GameTable::findOrFail($id);
+        $preset = $table->config?->preset;
+
+        $total = $preset ? count(explode('|', $preset->min_bet)) : 1;
+
+        $request->validate([
+            'bet_index' => "required|integer|min:1|max:{$total}",
+        ]);
+
+        $table->update(['bet_index' => $request->bet_index]);
+
+        $mins = explode('|', $preset->min_bet);
+        $maxs = explode('|', $preset->max_bet);
+        $i = $request->bet_index - 1;
+
+        return response()->json([
+            'success'      => true,
+            'table_id'     => $table->id,
+            'bet_index'    => $table->bet_index,
+            'active_range' => [
+                'min' => (float)$mins[$i],
+                'max' => (float)$maxs[$i],
+            ],
+        ]);
     }
 
     // ── Enable / Disable ──────────────────────────────────────────
@@ -266,43 +536,5 @@ class TabController extends Controller
 
         return redirect()->route('tabs.index')
             ->with('success', "Tab '{$name}' deleted.");
-    }
-
-    // ── Private Helpers ───────────────────────────────────────────
-
-    /**
-     * Apply all default payout rules for the tab's game type.
-     * All rules start as active (cashier can override per-tab via edit).
-     */
-    private function applyDefaultPayoutRules(GameTable $tab): void
-    {
-        $rules = PayoutRule::where('game_type_id', $tab->game_type_id)->get();
-
-        $data = $rules->map(fn($rule) => [
-            'table_id'   => $tab->id,
-            'payout_id'  => $rule->payout_id,
-            'is_active'  => $rule->is_active,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ])->toArray();
-
-        if (!empty($data)) {
-            GameTablePayoutRule::insert($data);
-        }
-    }
-
-    /**
-     * Sync payout rule active/inactive overrides for a tab.
-     */
-    private function syncPayoutRules(GameTable $tab, array $overrides): void
-    {
-        $allRules = PayoutRule::where('game_type_id', $tab->game_type_id)->pluck('payout_id');
-
-        foreach ($allRules as $payoutId) {
-            GameTablePayoutRule::updateOrCreate(
-                ['table_id' => $tab->id, 'payout_id' => $payoutId],
-                ['is_active' => isset($overrides[$payoutId]) ? 1 : 0]
-            );
-        }
     }
 }
