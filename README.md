@@ -1,68 +1,73 @@
 ﻿API docs
-[text](https://documenter.getpostman.com/view/31035377/2sBYHUTfiM)
+[Click here for API Docs](https://documenter.getpostman.com/view/31035377/2sBYHUTfiM)
 
-# 🃏 GameMGT — Casino Game Management System
+# 🎰 XPLAY — Virtuals (ETG Casino Gaming System)
 
-A production-ready, full-stack **Casino Game Management System** built with **Laravel 12**. It manages casino game tables, game configurations, payout rules, chip presets, financial floats, ledger transactions, game history, reporting, and role-based access control — all through a web dashboard and a versioned REST API.
+## -> End-to-End Operational Workflows (When & How to Use)
 
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [System Requirements](#-system-requirements)
-- [Installation Guide](#-installation-guide)
-  - [Option A — XAMPP (Recommended for Local)](#option-a--xampp-recommended-for-local)
-  - [Option B — Laravel Dev Server](#option-b--laravel-dev-server-artisan-serve)
-- [Environment Configuration](#-environment-configuration)
-- [Running the Application](#-running-the-application)
-- [Default Login Credentials](#-default-login-credentials)
-- [Seeded Data](#-seeded-data)
-- [API Reference](#-api-reference)
-- [Running Tests](#-running-tests)
-- [Project Structure](#-project-structure)
-- [Troubleshooting](#-troubleshooting)
+### Scenario A: Tablet First-Time Setup & Boot Sequence
+1. Physical tablet boots Android OS.
+2. Tablet reads Wi-Fi MAC address: `00:E0:4C:68:00:01`.
+3. Calls `GET /api/v1/tabs/by-mac/00:E0:4C:68:00:01`.
+4. If found, receives `tab_id = 1` and `table_name = "Amatic-1"`.
+5. Calls `GET /api/v1/tabs/1/configuration` to render minimum bet ($1), maximum bet ($5000), and chip values.
+6. Calls `GET /api/v1/tabs/1/status` to determine if locked or ready.
+7. Initiates periodic background keepalive `POST /api/v1/tabs/1/heartbeat`.
 
 ---
 
-## ✨ Features
-
-- **Game Table Management** — Create, configure, activate/deactivate game tables with per-table presets
-- **7 Game Types** — Baccarat, Andar Bahar, Dragon Tiger, 3 Card Poker, Blackjack, Mini Flush, Casino War
-- **Game Presets** — Per-game configuration (min/max bets, commissions, side bets, rules)
-- **Chip Presets** — Define chip denominations linked to game table configurations
-- **Payout Rules** — Configurable payout multipliers per game type with jackpot support
-- **Shoe Types** — Track physical card shoe hardware (Angel, Bee, Safeshoe, etc.)
-- **Financial Engine**
-  - **Table Float** — Open/close cash float sessions per table per game day
-  - **Table Ledger** — Full transaction lifecycle: BUYIN, CASHOUT, FILL, CREDIT with pending → claimed → completed status workflow
-  - **Idempotency** — Duplicate-transaction protection via `Idempotency-Key` header
-- **Game History** — Per-game round history recording via API
-- **Live Dashboard** — Auto-polling dashboard showing all open tables, float summaries, and ledger totals
-- **Reports** — Ledger, Float, GameDay, and Table reports with date/table filters and CSV export
-- **Role-Based Access Control (RBAC)** — Custom roles and permissions, applied per route
-- **User Management** — Create users with roles, card IDs, activate/deactivate
-- **REST API** — Versioned API (`/api/v1/`) with Sanctum token authentication
-- **MAC Address Binding** — Bind/unbind physical terminals to game tables
-- **Themes** — UI theme management
-- **Utilities** — Database reset tools for development/testing
+### Scenario B: Player Buyin & Session Issuance at Cage
+1. Player approaches Cashier desk, requests $500 on **Amatic-1**.
+2. Cashier clicks **Amatic-1** on `/dashboard`.
+3. Cashier enters `$500.00` and optional player name.
+4. Client sends `POST /api/v1/ledger/txn` (`BUYIN`, amount: 500).
+5. Server atomically:
+   - Records BUYIN in ledger.
+   - Generates 6-digit session OTP (`839214`).
+   - Updates `tab_statuses.current_balance = 500.00`.
+   - Unlocks the tab.
+6. Player walks to terminal, types OTP `839214` to begin play.
 
 ---
 
-## 🛠 Tech Stack
+### Scenario C: Live Bet Placement & Automated Resulting
+1. Player touches screen to place $50 on Number 17 (Position 68) and $100 on Red (Position 150).
+2. Tablet sends `POST /api/v1/tabs/1/bet` with `bets: [{position_index: 68, amount: 50}, {position_index: 150, amount: 100}]`.
+3. Server validates balance ($500 >= $150), accepts bets, and updates balance to $350.
+4. Physical roulette wheel spins. The ball drops into pocket **17**.
+5. Station hardware reader sends `POST /api/v1/station/1/roulette/result`:
+   `{ "game_no": "ROL-2026-002", "winning_number": 17 }`.
+6. Server Resulting Engine:
+   - Evaluates Position 68 (Straight 17) -> **WON $1,800.00** (payout 35:1).
+   - Evaluates Position 150 (Red) -> **LOST** (17 is black).
+   - Credits Tab #1: `$350 + $1,800 = $2,150.00`.
+   - Saves record to `roulette_history`.
+7. Tablet updates screen showing winning pocket #17 in gold and balance $2,150.00.
 
-| Layer | Technology |
-|---|---|
-| **Framework** | Laravel 12.0 |
-| **Language** | PHP 8.2+ |
-| **Database** | MySQL / MariaDB (Eloquent ORM) |
-| **Auth** | Laravel Breeze (Web Sessions) + Laravel Sanctum (API) |
-| **Frontend** | Blade Templates, Bootstrap 5, Alpine.js, Axios |
-| **Build Tool** | Vite 7 |
-| **Testing** | Pest PHP 3 |
-| **Code Style** | Laravel Pint (PSR-12) |
-| **API Docs** | Postman |
+---
+
+### Scenario D: Disaster Recovery (Power Outage / Wi-Fi Loss)
+1. Tablet power cord unplugged or Wi-Fi drops. Tablet turns off.
+2. Tablet turns back on 2 minutes later.
+3. Tablet application invokes:
+   `POST /api/v1/tabs/1/restore` with `{ "hardware_mac": "00:E0:4C:68:00:01" }`.
+4. Server retrieves `tab_statuses` snapshot and sends back:
+   - Active Session ID (`42`)
+   - Session OTP (`839214`)
+   - Exact Balance (`$2,150.00`)
+   - Last round outcome (#17)
+5. Tablet restores the player session immediately without requiring cage intervention.
+
+---
+
+### Scenario E: Player Cashout at Cage
+1. Player decides to leave, returns to the Cashier.
+2. Cashier clicks **Amatic-1** on `/dashboard`.
+3. Drawer shows active balance `$2,150.00` and OTP `839214`.
+4. Cashier confirms player's OTP, clicks **"Cashout"**.
+5. System invokes `POST /dashboard/tab/1/cashout`.
+6. Server records `CASHOUT` transaction in `table_ledgers`, completes `tab_sessions`, resets `tab_statuses.current_balance = 0.00`, and sets `lock_status = 'locked'`.
+7. Tablet screen locks and shows "Thank you for playing".
 
 ---
 
@@ -98,7 +103,7 @@ Start **Apache** and **MySQL** from the XAMPP Control Panel.
 
 ```bash
 cd C:\xampp\htdocs
-git clone https://github.com/iaxivanazim/gamemgt.git
+git clone https://github.com/iaxivanazim/xplay.git
 cd gamemgt
 ```
 
@@ -135,13 +140,14 @@ CREATE DATABASE gamemgt CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 Then open `.env` and update the database block:
 
 ```env
-APP_NAME="XTable"
+APP_NAME="XPlay"
 APP_URL=http://localhost/gamemgt/public
+SERVER_PORT=9001
 
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_DATABASE=gamemgt
+DB_DATABASE=xplay
 DB_USERNAME=root
 DB_PASSWORD=
 
@@ -193,7 +199,7 @@ Use this if you prefer the built-in PHP development server without XAMPP.
 #### Step 1 — Clone the Repository
 
 ```bash
-git clone https://github.com/iaxivanazim/gamemgt.git
+git clone https://github.com/iaxivanazim/xplay.git
 cd gamemgt
 ```
 
@@ -213,8 +219,8 @@ cp .env.example .env
 Update `.env`:
 
 ```env
-APP_NAME="XTable"
-APP_URL=http://localhost:9000
+APP_NAME="XPlay"
+APP_URL=http://localhost:9001
 
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -245,7 +251,7 @@ This runs all 4 services concurrently:
 
 | Service | Command | URL |
 |---|---|---|
-| App Server | `php artisan serve` | http://localhost:8000 |
+| App Server | `php artisan serve` | http://localhost:9001 |
 | Vite HMR | `npm run dev` | (hot reload) |
 | Queue Worker | `php artisan queue:listen` | (background) |
 | Log Viewer | `php artisan pail` | (terminal) |
@@ -266,7 +272,7 @@ php artisan queue:work
 #### Step 6 — Access the Application
 
 ```
-http://localhost:9000
+http://localhost:9001
 ```
 
 ---
@@ -280,7 +286,8 @@ Key `.env` variables explained:
 APP_NAME="XTable"
 APP_ENV=local           # Change to 'production' on live server
 APP_DEBUG=true          # Set to false in production
-APP_URL=http://localhost/gamemgt/public
+APP_URL=http://localhost/xplay/public
+SERVER_PORT=9001
 
 # Database (MySQL)
 DB_CONNECTION=mysql
@@ -354,205 +361,6 @@ After running `php artisan migrate --seed`, the following admin account is creat
 | **Role** | Admin (full access) |
 
 > ⚠️ **Change the default password immediately** after your first login in any non-development environment.
-
----
-
-## 🌱 Seeded Data
-
-The following reference data is inserted automatically via `php artisan migrate --seed`:
-
-### Roles
-
-| Role | Slug |
-|---|---|
-| Admin | `admin` |
-
-### Game Types
-
-| Name | Code | Description |
-|---|---|---|
-| Baccarat | `BAC` | Bet on Player, Banker, or Tie |
-| Andar Bahar | `AB` | Indian card game — Andar or Bahar side |
-| Dragon Tiger | `DT` | Dragon vs Tiger high-card comparison |
-| 3 Card Poker | `3CP` | Three-card poker variant against dealer |
-| Blackjack | `BJ` | Beat the dealer to 21 |
-| Mini Flush | `MF` | Flush-based card game |
-| Casino War | `CW` | Simple high-card battle with war option |
-
-### Shoe Types
-
-`Angel` · `Bee` · `Safeshoe` · `Eshoe` · `LT` · `Ideal`
-
-### Permissions
-
-| Module | Permissions |
-|---|---|
-| Users | `view-users`, `create-users`, `edit-users`, `deactivate-users` |
-| Roles | `view-roles`, `create-roles`, `edit-roles`, `delete-roles`, `assign-permissions` |
-| Game Tables | `create-game_tables` |
-| Chips | `view-chips`, `create-chips`, `edit-chips`, `delete-chips` |
-| History | `view-history` |
-| Ledger | `view-ledger` |
-| Utilities | `manage-resets` |
-
----
-
-## 📡 API Reference
-
-All API endpoints are prefixed with `/api/v1/`. No auth token is required for local development by default.
-
-Full interactive documentation available on Postman:
-🔗 **[View API Docs on Postman](https://documenter.getpostman.com/view/31035377/2sBXcEmMLA)**
-
-### Endpoints Overview
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/v1/game-tables` | List all game tables |
-| `GET` | `/api/v1/game-tables/active` | List active game tables |
-| `GET` | `/api/v1/game-tables/{id}` | Get single table |
-| `GET` | `/api/v1/game-tables/{id}/configuration` | Full table config (preset, chips, payouts) |
-| `GET` | `/api/v1/game-tables/by-mac/{mac}` | Find table by MAC address |
-| `POST` | `/api/v1/game-tables/{id}/register-mac` | Bind MAC to table |
-| `GET` | `/api/v1/game-tables/{id}/float` | Current float for table |
-| `GET` | `/api/v1/game-tables/{id}/bet-index` | Get current bet index |
-| `POST` | `/api/v1/game-tables/{id}/bet-index` | Update bet index |
-| `POST` | `/api/v1/tables/{id}/open` | Open float session |
-| `POST` | `/api/v1/tables/{id}/close` | Close float session |
-| `GET` | `/api/v1/tables/{id}/session` | Current session info |
-| `GET` | `/api/v1/tables/{id}/history` | Float history |
-| `POST` | `/api/v1/ledger/txn` | Create ledger transaction *(idempotent)* |
-| `GET` | `/api/v1/ledger/table/{table_id}` | Transactions by table |
-| `GET` | `/api/v1/ledger/table/{table_id}/summary` | Ledger summary |
-| `GET` | `/api/v1/ledger/tab/{tab_id}` | Transactions by tab |
-| `GET` | `/api/v1/ledger/txn/{txn_id}` | Single transaction |
-| `POST` | `/api/v1/ledger/txn/{txn_id}/claim` | Claim transaction |
-| `POST` | `/api/v1/ledger/txn/{txn_id}/complete` | Complete transaction |
-| `GET` | `/api/v1/ledger/pending` | All pending transactions |
-| `POST` | `/api/v1/history/{game}` | Record game round |
-| `GET` | `/api/v1/history/{game}/table/{id}` | History by table |
-| `GET` | `/api/v1/history/{game}/tab/{tabId}` | History by tab |
-| `GET` | `/api/v1/history/{game}/{recordId}` | Single history record |
-| `GET` | `/api/v1/game-day/current` | Current game day |
-| `POST` | `/api/v1/game-day/start` | Start game day |
-| `POST` | `/api/v1/game-day/close` | Close game day |
-| `GET` | `/api/v1/payout-rules/game-type/{id}` | Payout rules by game type |
-| `GET` | `/api/v1/game-types` | All game types |
-| `GET` | `/api/v1/users` | All users |
-
-### Idempotency (Ledger Transactions)
-
-To prevent duplicate ledger writes, send a unique UUID with every `POST /api/v1/ledger/txn`:
-
-```http
-POST /api/v1/ledger/txn
-Content-Type: application/json
-Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
-
-{ ... }
-```
-
-Response header will indicate:
-- `Idempotency-Key-Status: original` — first request processed
-- `Idempotency-Key-Status: replayed` — duplicate returned from cache
-- `Idempotency-Key-Status: key-mismatch` — same key, different body (rejected)
-
----
-
-## 🧪 Running Tests
-
-Tests are written with **Pest PHP**.
-
-```bash
-# Run all tests
-php artisan test
-
-# Or use Pest directly
-./vendor/bin/pest
-
-# Run a specific file
-./vendor/bin/pest tests/Feature/TableFloatControllerTest.php
-
-# Run with code coverage (requires Xdebug or PCOV)
-./vendor/bin/pest --coverage
-```
-
-Test locations:
-
-```
-tests/
-├── Feature/
-│   ├── Auth/                        # Auth flow tests
-│   ├── ProfileTest.php
-│   └── TableFloatControllerTest.php
-└── Unit/
-```
-
----
-
-## 📁 Project Structure
-
-```
-gamemgt/
-├── app/
-│   ├── FormatsGameTable.php         # Trait: consistent API JSON formatting
-│   ├── Http/
-│   │   ├── Controllers/
-│   │   │   ├── Auth/                # Breeze auth controllers
-│   │   │   ├── DashboardController.php
-│   │   │   ├── GameTableController.php
-│   │   │   ├── TableFloatController.php
-│   │   │   ├── TableLedgerController.php
-│   │   │   ├── GameHistoryController.php
-│   │   │   ├── ReportController.php
-│   │   │   ├── RoleController.php
-│   │   │   ├── UserController.php
-│   │   │   └── ...
-│   │   ├── Middleware/
-│   │   │   ├── CheckPermission.php      # RBAC route guard
-│   │   │   └── IdempotencyMiddleware.php # Duplicate request protection
-│   │   └── Requests/
-│   ├── Models/                      # 28 Eloquent models
-│   │   ├── GameTable.php
-│   │   ├── TableFloat.php
-│   │   ├── TableLedger.php
-│   │   ├── BaccaratPreset.php       # Per-game preset models
-│   │   ├── BaccaratHistory.php      # Per-game history models
-│   │   └── ...
-│   ├── Rules/
-│   │   └── PipeSeparatedNumbers.php # Custom validation rule
-│   └── Services/
-│       └── ResetService.php         # DB reset logic
-├── database/
-│   ├── migrations/                  # 30 migration files (Feb–Jul 2026)
-│   └── seeders/                     # 8 seeders
-├── resources/
-│   ├── css/app.css
-│   ├── js/app.js
-│   └── views/
-│       ├── dashboard.blade.php
-│       ├── game_tables/             # index, create, edit
-│       ├── ledger/
-│       ├── reports/
-│       ├── history/
-│       ├── roles/
-│       ├── users/
-│       ├── chips/
-│       ├── themes/
-│       ├── layouts/
-│       ├── components/
-│       └── utilities/
-├── routes/
-│   ├── api.php                      # REST API routes (/api/v1/)
-│   ├── web.php                      # Web dashboard routes (auth-gated)
-│   └── auth.php                     # Auth routes (Breeze)
-├── tests/
-│   ├── Feature/
-│   └── Unit/
-├── composer.json
-├── package.json
-└── vite.config.js
-```
 
 ---
 
