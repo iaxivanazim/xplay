@@ -202,8 +202,11 @@
 
             <div class="jackpot-card mb-3">
                 <div class="text-uppercase fw-bold text-secondary small mb-2">Actions</div>
-                <a href="{{ route('tabs.create') }}" class="btn btn-warning w-100 btn-sm fw-bold mb-2">
-                    <i class="bi bi-plus-lg me-1"></i>New Tab
+                <a href="{{ route('tabs.bulk_create') }}" class="btn btn-warning w-100 btn-sm fw-bold mb-2">
+                    <i class="bi bi-collection-fill me-1"></i>Bulk Add Tabs
+                </a>
+                <a href="{{ route('tabs.create') }}" class="btn btn-outline-warning w-100 btn-sm fw-bold mb-2">
+                    <i class="bi bi-plus-lg me-1"></i>New Single Tab
                 </a>
                 <a href="{{ route('game_configs.index') }}" class="btn btn-outline-secondary w-100 btn-sm">
                     <i class="bi bi-gear-wide-connected me-1"></i>Game Configs

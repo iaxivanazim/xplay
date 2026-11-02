@@ -283,6 +283,12 @@ The system is organized into three distinct, specialized modules as requested by
     - Top KPI strip: User (Cashier), Period, Time, Total In, Total Out, Difference, Total Bet, Total Win, FT In, FT Out, Bill In, Hand Pay, Credits ($514.95 in bright amber), Float: 0.00.
     - Left Jackpots card: Megapot ($9,943.82) & Tournament ($300.00).
     - Table columns: `U` (Unlock/Lock badge), `NO`, `E` (Enabled Y/N), `F` (Free Y/N), `A` (Active Y/N), `NAME`, `DENOMINATION`, `CREDITS`, `PROMO`, `LAST BET`, `GAMES`, `IN`, `OUT`, `BALANCE` (green for positive, red for negative), `BILL IN`, `FT IN`, `FT OUT`, `BET`, `CONFIG`, `ACTIONS`.
+- **Bulk Tab Provisioning (`/tabs/bulk-create`):**
+  - Allows cashiers/administrators to rapidly generate banks of 5, 10, 20+ tabs in a single transaction with one shared basic game configuration.
+  - Supports naming prefix templates (`Amatic-`, `Apex-`, `VIP-`, `TAB-`), sequential numbering, starting IP auto-incrementation, denomination, and initial lock status.
+  - Features an interactive dynamic preview table with individual inline row editing (custom numbers, names, IPs, MACs, row deletion, and custom row addition).
+  - Automatically initializes `TabStatus` (failure recovery snapshot) and `TabGameConfig` relations for all generated tabs.
+  - Every tab created in bulk retains its own distinct identity and can be edited individually at any time via `/tabs/{tab}/edit` or the Cage Dashboard drawer.
 
 ---
 

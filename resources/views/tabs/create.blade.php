@@ -9,9 +9,14 @@
                 </h5>
                 <p class="text-secondary small mb-0">Register tab hardware, network coordinates, and assign game configurations.</p>
             </div>
-            <a href="{{ route('tabs.index') }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-arrow-left me-1"></i>Back to Tab List
-            </a>
+            <div class="d-flex align-items-center gap-2">
+                <a href="{{ route('tabs.bulk_create') }}" class="btn btn-warning btn-sm fw-bold">
+                    <i class="bi bi-collection-fill me-1"></i>Bulk Add Tabs
+                </a>
+                <a href="{{ route('tabs.index') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left me-1"></i>Back to Tab List
+                </a>
+            </div>
         </div>
 
         {{-- Errors --}}

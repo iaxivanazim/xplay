@@ -10,6 +10,7 @@ class GameConfig extends Model
 
     protected $fillable = [
         'name',
+        'device_ip',
         'game_type_id',
         'min_bet',
         'max_bet',

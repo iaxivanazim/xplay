@@ -56,6 +56,13 @@
                                 </div>
 
                                 <div class="col-md-6">
+                                    <label class="form-label text-secondary small">Device IP Address</label>
+                                    <input type="text" name="device_ip" class="form-control bg-black text-white border-secondary"
+                                        placeholder="e.g. 192.168.1.100" value="{{ old('device_ip') }}">
+                                    <div class="form-text text-secondary" style="font-size:11px;">External device / station IP address</div>
+                                </div>
+
+                                <div class="col-md-6">
                                     <label class="form-label text-secondary small">Min Bet (Pipe-separated or single) <span class="text-danger">*</span></label>
                                     <input type="text" name="min_bet" class="form-control bg-black text-white border-secondary"
                                         placeholder="e.g. 10|25|50" value="{{ old('min_bet', '10|25|50') }}" required>

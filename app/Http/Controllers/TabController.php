@@ -79,6 +79,205 @@ class TabController extends Controller
         ));
     }
 
+    public function bulkCreate()
+    {
+        $gameConfigs   = GameConfig::where('is_active', 1)->with('gameType')->get();
+        $defaultConfig = GameConfig::where('is_default', 1)->first() ?? $gameConfigs->first();
+        $nextNumber    = (Tab::max('tab_number') ?? 0) + 1;
+
+        return view('tabs.bulk_create', compact('gameConfigs', 'defaultConfig', 'nextNumber'));
+    }
+
+    public function bulkStore(Request $request)
+    {
+        $request->validate([
+            'game_config_id' => 'required|exists:game_configs,id',
+            'denomination'   => 'required|numeric|min:0.0001',
+            'lock_status'    => 'nullable|string|in:unlocked,locked,break',
+            'status'         => 'nullable|boolean',
+
+            // Mode A (sequential generator)
+            'naming_prefix'  => 'nullable|string|max:50',
+            'start_number'   => 'nullable|integer|min:1',
+            'quantity'       => 'nullable|integer|min:1|max:100',
+            'start_ip'       => 'nullable|ip',
+
+            // Mode B (explicit rows)
+            'tabs'               => 'nullable|array|min:1',
+            'tabs.*.tab_number'  => 'required_with:tabs|integer|min:1',
+            'tabs.*.table_name'  => 'required_with:tabs|string|max:100',
+            'tabs.*.ip_address'  => 'nullable|ip',
+            'tabs.*.active_mac'  => 'nullable|string|max:50',
+        ]);
+
+        $tabItems = [];
+
+        if ($request->has('tabs') && is_array($request->tabs) && count($request->tabs) > 0) {
+            foreach ($request->tabs as $row) {
+                if (empty($row['tab_number']) || empty($row['table_name'])) {
+                    continue;
+                }
+                $tabItems[] = [
+                    'tab_number' => (int) $row['tab_number'],
+                    'table_name' => trim($row['table_name']),
+                    'ip_address' => !empty($row['ip_address']) ? trim($row['ip_address']) : null,
+                    'active_mac' => !empty($row['active_mac']) ? trim($row['active_mac']) : null,
+                ];
+            }
+        }
+
+        if (empty($tabItems)) {
+            $prefix      = $request->input('naming_prefix', 'Tab-') ?: 'Tab-';
+            $startNumber = (int) $request->input('start_number', (Tab::max('tab_number') ?? 0) + 1);
+            $quantity    = (int) $request->input('quantity', 5);
+            $startIp     = $request->input('start_ip');
+            $startIpLong = $startIp ? ip2long($startIp) : null;
+
+            for ($i = 0; $i < $quantity; $i++) {
+                $num = $startNumber + $i;
+                $tabItems[] = [
+                    'tab_number' => $num,
+                    'table_name' => $prefix . $num,
+                    'ip_address' => ($startIpLong !== null) ? long2ip($startIpLong + $i) : null,
+                    'active_mac' => null,
+                ];
+            }
+        }
+
+        if (empty($tabItems)) {
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => 'No tabs specified to create.'], 422);
+            }
+            return back()->withInput()->withErrors(['tabs' => 'No tabs specified to create.']);
+        }
+
+        // 1. Validate internal batch uniqueness
+        $tabNumbers = array_column($tabItems, 'tab_number');
+        if (count($tabNumbers) !== count(array_unique($tabNumbers))) {
+            $msg = 'Duplicate tab numbers found within the submitted batch.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+            return back()->withInput()->withErrors(['tabs' => $msg]);
+        }
+
+        $tableNames = array_column($tabItems, 'table_name');
+        if (count($tableNames) !== count(array_unique($tableNames))) {
+            $msg = 'Duplicate tab names found within the submitted batch.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+            return back()->withInput()->withErrors(['tabs' => $msg]);
+        }
+
+        // 2. Validate against existing database records
+        $existingNumbers = Tab::whereIn('tab_number', $tabNumbers)->pluck('tab_number')->toArray();
+        if (!empty($existingNumbers)) {
+            $msg = 'The following tab number(s) already exist in database: ' . implode(', ', $existingNumbers) . '. Please select different numbers.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg, 'conflicts' => $existingNumbers], 409);
+            }
+            return back()->withInput()->withErrors(['tabs' => $msg]);
+        }
+
+        $existingNames = Tab::whereIn('table_name', $tableNames)->pluck('table_name')->toArray();
+        if (!empty($existingNames)) {
+            $msg = 'The following tab name(s) already exist in database: ' . implode(', ', $existingNames) . '. Please choose different names.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg, 'conflicts' => $existingNames], 409);
+            }
+            return back()->withInput()->withErrors(['tabs' => $msg]);
+        }
+
+        $createdTabs = DB::transaction(function () use ($request, $tabItems) {
+            $primaryConfig = GameConfig::findOrFail($request->game_config_id);
+            $denomination  = (float) $request->denomination;
+            $lockStatus    = $request->input('lock_status', 'unlocked');
+            $status        = $request->boolean('status', true);
+            $currentUserId = auth()->id();
+            $batchCreated  = [];
+
+            foreach ($tabItems as $item) {
+                $cleanMac = !empty($item['active_mac'])
+                    ? strtoupper(str_replace('-', ':', $item['active_mac']))
+                    : null;
+
+                $tab = Tab::create([
+                    'tab_number'        => $item['tab_number'],
+                    'table_name'        => $item['table_name'],
+                    'game_type_id'      => $primaryConfig->game_type_id,
+                    'game_config_id'    => $primaryConfig->id,
+                    'ip_address'        => $item['ip_address'],
+                    'active_mac'        => $cleanMac,
+                    'denomination'      => $denomination,
+                    'status'            => $status,
+                    'lock_status'       => $lockStatus,
+                    'connection_status' => 'online',
+                    'float'             => 0.00,
+                    'bet_index'         => 1,
+                    'last_seen_at'      => now(),
+                ]);
+
+                // Register primary game config in pivot
+                TabGameConfig::create([
+                    'tab_id'         => $tab->id,
+                    'game_config_id' => $primaryConfig->id,
+                    'is_active'      => 1,
+                    'assigned_by'    => $currentUserId,
+                    'assigned_at'    => now(),
+                ]);
+
+                // Create initial TabStatus for failure restoration
+                TabStatus::create([
+                    'tab_id'            => $tab->id,
+                    'status'            => 'idle',
+                    'lock_status'       => $tab->lock_status,
+                    'current_balance'   => 0.00,
+                    'session_buyin'     => 0.00,
+                    'session_cashout'   => 0.00,
+                    'shift_total_in'    => 0.00,
+                    'shift_total_out'   => 0.00,
+                    'shift_total_bet'   => 0.00,
+                    'shift_total_win'   => 0.00,
+                    'shift_games_count' => 0,
+                    'shift_last_bet'    => 0.00,
+                    'connection_status' => 'online',
+                    'active_mac'        => $tab->active_mac,
+                    'last_synced_at'    => now(),
+                    'recovery_data'     => [
+                        'tab_id'    => $tab->id,
+                        'tab_name'  => $tab->table_name,
+                        'balance'   => 0,
+                        'timestamp' => now()->toIso8601String(),
+                    ],
+                ]);
+
+                $batchCreated[] = $tab;
+            }
+
+            return $batchCreated;
+        });
+
+        $count = count($createdTabs);
+        $primaryConfig = GameConfig::find($request->game_config_id);
+        $configName = $primaryConfig ? $primaryConfig->name : 'Basic Config';
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully created {$count} tabs in bulk with basic config '{$configName}'.",
+                'count'   => $count,
+                'data'    => $createdTabs,
+            ], 201);
+        }
+
+        $firstNum = $tabItems[0]['tab_number'];
+        $lastNum  = end($tabItems)['tab_number'];
+
+        return redirect()->route('tabs.index')
+            ->with('success', "Successfully added {$count} tabs in bulk (Tab #{$firstNum} to #{$lastNum}) with basic config '{$configName}'. Each tab can now be edited individually.");
+    }
+
     public function create()
     {
         $gameConfigs = GameConfig::where('is_active', 1)->with('gameType')->get();

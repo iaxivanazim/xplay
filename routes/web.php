@@ -59,6 +59,8 @@ Route::middleware('auth')->group(function () {
     Route::post('game_configs/{gameConfig}/toggle-active', [GameConfigController::class, 'toggleActive'])->name('game_configs.toggle_active');
 
     // ── Module 2: Tab Config ───────────────────────────────────────────
+    Route::get('tabs/bulk-create',           [TabController::class, 'bulkCreate'])->name('tabs.bulk_create');
+    Route::post('tabs/bulk-store',           [TabController::class, 'bulkStore'])->name('tabs.bulk_store');
     Route::resource('tabs', TabController::class);
     Route::post('tabs/{tab}/toggle-lock',    [TabController::class, 'toggleLock'])->name('tabs.toggle_lock');
     Route::post('tabs/{tab}/deactivate',     [TabController::class, 'deactivate'])->name('tabs.deactivate');

@@ -49,6 +49,7 @@ class GameConfigController extends Controller
     {
         $request->validate([
             'name'                  => 'required|string|max:255|unique:game_configs,name',
+            'device_ip'             => 'nullable|string|max:45',
             'game_type_id'          => 'required|exists:game_types,id',
             'min_bet'               => ['required', new PipeSeparatedNumbers],
             'max_bet'               => ['required', new PipeSeparatedNumbers],
@@ -82,6 +83,7 @@ class GameConfigController extends Controller
 
             $config = GameConfig::create([
                 'name'                  => $request->name,
+                'device_ip'             => $request->device_ip,
                 'game_type_id'          => $request->game_type_id,
                 'min_bet'               => $request->min_bet,
                 'max_bet'               => $request->max_bet,
@@ -140,6 +142,7 @@ class GameConfigController extends Controller
     {
         $request->validate([
             'name'                  => 'required|string|max:255|unique:game_configs,name,' . $gameConfig->id,
+            'device_ip'             => 'nullable|string|max:45',
             'min_bet'               => ['required', new PipeSeparatedNumbers],
             'max_bet'               => ['required', new PipeSeparatedNumbers],
             'side_min_bet'          => 'nullable|numeric|min:0',
@@ -173,6 +176,7 @@ class GameConfigController extends Controller
 
             $gameConfig->update([
                 'name'                  => $request->name,
+                'device_ip'             => $request->device_ip,
                 'min_bet'               => $request->min_bet,
                 'max_bet'               => $request->max_bet,
                 'side_min_bet'          => $request->side_min_bet,

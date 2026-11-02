@@ -11,6 +11,7 @@ use App\Http\Controllers\GameHistoryController;
 use App\Http\Controllers\userController;
 use App\Http\Controllers\Api\TabApiController;
 use App\Http\Controllers\Api\StationResultController;
+use App\Http\Controllers\Api\GameConfigApiController;
 use App\Models\GameType;
 use App\Models\PayoutRule;
 
@@ -22,6 +23,7 @@ Route::prefix('v1')->group(function () {
 
     // ── Tab Virtuals API Endpoints ──────────────────────────────────────────
     Route::get('/tabs',                        [TabApiController::class, 'index']);
+    Route::post('/tabs/bulk',                  [TabApiController::class, 'bulkStore']);
     Route::get('/tabs/by-mac/{mac}',           [TabApiController::class, 'byMac']);
     Route::get('/tabs/{id}',                   [TabApiController::class, 'show'])->whereNumber('id');
     Route::post('/tabs/{id}/register-mac',     [TabApiController::class, 'registerMac'])->whereNumber('id');
@@ -79,6 +81,14 @@ Route::prefix('v1')->group(function () {
     Route::post('/tabs/{id}/bet',                      [StationResultController::class, 'placeBet'])->whereNumber('id');
     Route::post('/roulette/settle',                   [StationResultController::class, 'settle']);
 
+    // ── Game Configuration & Device IP API Endpoints ────────────────────────
+    Route::get('/game-configs',                        [GameConfigApiController::class, 'index']);
+    Route::get('/game-configs/{id}/device-ip',         [GameConfigApiController::class, 'getDeviceIp'])->whereNumber('id');
+    Route::post('/game-configs/{id}/device-ip',        [GameConfigApiController::class, 'updateDeviceIp'])->whereNumber('id');
+    Route::put('/game-configs/{id}/device-ip',         [GameConfigApiController::class, 'updateDeviceIp'])->whereNumber('id');
+    Route::post('/game-configs/device-ip',             [GameConfigApiController::class, 'updateDeviceIp']);
+    Route::put('/game-configs/device-ip',              [GameConfigApiController::class, 'updateDeviceIp']);
+
     Route::post('/history/{game}',           [GameHistoryController::class, 'store']);
     Route::get('/history/{game}/table/{id}', [GameHistoryController::class, 'byTable']);
     Route::get('/history/{game}/tab/{tabId}',  [GameHistoryController::class, 'byTab']);
@@ -91,6 +101,7 @@ Route::prefix('v1')->group(function () {
 // Backward-compatible non-v1 aliases for Tab endpoints (/api/tabs/...)
 Route::prefix('tabs')->group(function () {
     Route::get('/',                    [TabApiController::class, 'index']);
+    Route::post('/bulk',               [TabApiController::class, 'bulkStore']);
     Route::get('/by-mac/{mac}',       [TabApiController::class, 'byMac']);
     Route::get('/{id}',               [TabApiController::class, 'show'])->whereNumber('id');
     Route::post('/{id}/register-mac', [TabApiController::class, 'registerMac'])->whereNumber('id');
@@ -99,6 +110,16 @@ Route::prefix('tabs')->group(function () {
     Route::post('/{id}/restore',      [TabApiController::class, 'restore'])->whereNumber('id');
     Route::post('/{id}/heartbeat',    [TabApiController::class, 'heartbeat'])->whereNumber('id');
     Route::post('/{id}/bet',          [StationResultController::class, 'placeBet'])->whereNumber('id');
+});
+
+// Backward-compatible non-v1 aliases for GameConfig device IP endpoints (/api/game-configs/...)
+Route::prefix('game-configs')->group(function () {
+    Route::get('/',                    [GameConfigApiController::class, 'index']);
+    Route::get('/{id}/device-ip',      [GameConfigApiController::class, 'getDeviceIp'])->whereNumber('id');
+    Route::post('/{id}/device-ip',     [GameConfigApiController::class, 'updateDeviceIp'])->whereNumber('id');
+    Route::put('/{id}/device-ip',      [GameConfigApiController::class, 'updateDeviceIp'])->whereNumber('id');
+    Route::post('/device-ip',          [GameConfigApiController::class, 'updateDeviceIp']);
+    Route::put('/device-ip',           [GameConfigApiController::class, 'updateDeviceIp']);
 });
 
 // https://documenter.getpostman.com/view/31035377/2sBXcEmMLA

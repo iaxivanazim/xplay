@@ -28,6 +28,15 @@ class TabApiController extends Controller
     }
 
     /**
+     * POST /api/v1/tabs/bulk
+     * Bulk provisions tabs with one basic configuration.
+     */
+    public function bulkStore(Request $request)
+    {
+        return app(\App\Http\Controllers\TabController::class)->bulkStore($request);
+    }
+
+    /**
      * GET /api/v1/tabs/{id}
      */
     public function show($id)
@@ -203,6 +212,7 @@ class TabApiController extends Controller
             return [
                 'id'            => $cfg->id,
                 'name'          => $cfg->name,
+                'device_ip'     => $cfg->device_ip,
                 'game_type'     => $cfg->gameType?->name,
                 'game_code'     => $cfg->gameType?->code,
                 'min_bet'       => $cfg->min_bet,

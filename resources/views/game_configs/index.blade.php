@@ -131,6 +131,12 @@
                                                 <span class="text-info">{{ $cfg->baccarat_6_commission ? 'No-Commission (Punto Banco / Super 6)' : ($cfg->commission * 100) . '%' }}</span>
                                             </div>
                                         @endif
+                                        @if($cfg->device_ip)
+                                            <div>
+                                                <span class="text-white-50"><i class="bi bi-hdd-network me-1"></i>Device IP:</span>
+                                                <span class="text-info fw-semibold">{{ $cfg->device_ip }}</span>
+                                            </div>
+                                        @endif
                                         <div>
                                             <span class="text-white-50"><i class="bi bi-tablet me-1"></i>Assigned Tabs:</span>
                                             <span class="badge bg-dark border border-secondary text-white">{{ $cfg->tabs_count ?? $cfg->tabs->count() }}</span>
