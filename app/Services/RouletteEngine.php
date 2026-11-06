@@ -61,6 +61,13 @@ class RouletteEngine
      */
     private static ?array $allPositions = null;
 
+    protected TabBalanceService $balanceService;
+
+    public function __construct(?TabBalanceService $balanceService = null)
+    {
+        $this->balanceService = $balanceService ?? app(TabBalanceService::class);
+    }
+
     /**
      * Generate and retrieve all 157 betting positions matching hardware layout.
      * Indices:
@@ -462,51 +469,21 @@ class RouletteEngine
                 $currentCredit = 0.00;
 
                 if ($tab) {
-                    $tabStatus = TabStatus::firstOrCreate(
-                        ['tab_id' => $tab->id],
-                        ['current_balance' => 0.00, 'shift_total_bet' => 0.00, 'shift_total_win' => 0.00]
+                    $result = $this->balanceService->applyGameResult(
+                        tab: $tab,
+                        betAmount: (float) $totalBet,
+                        winAmount: (float) $totalWin,
+                        gameNo: $gameNo,
+                        gameType: 'ROU',
+                        metadata: [
+                            'winning_number' => $winningNumber,
+                            'winning_colour' => $winningColour,
+                            'table_id'       => $tableId,
+                            'evaluated_bets' => $evaluatedBets,
+                        ]
                     );
 
-                    // Update Tab Balance: Deduct Bet, Add Total Payout
-                    $newBalance = (float)$tabStatus->current_balance - $totalBet + $totalWin;
-                    if ($newBalance < 0) {
-                        $newBalance = 0.00;
-                    }
-
-                    $tabStatus->current_balance   = $newBalance;
-                    $tabStatus->shift_total_bet   = (float)$tabStatus->shift_total_bet + $totalBet;
-                    $tabStatus->shift_total_win   = (float)$tabStatus->shift_total_win + $totalWin;
-                    $tabStatus->shift_games_count = (int)$tabStatus->shift_games_count + 1;
-                    $tabStatus->shift_last_bet    = $totalBet;
-                    $tabStatus->last_bet_amount   = $totalBet;
-                    $tabStatus->last_win_amount   = $totalWin;
-                    $tabStatus->last_game_no      = $gameNo;
-                    $tabStatus->last_game_at      = $now;
-                    $tabStatus->last_synced_at    = $now;
-
-                    // Update failure recovery snapshot
-                    $recData = is_array($tabStatus->recovery_data) ? $tabStatus->recovery_data : [];
-                    $recData['last_game_no']        = $gameNo;
-                    $recData['last_winning_number'] = $winningNumber;
-                    $recData['last_bets']           = $evaluatedBets;
-                    $recData['balance_after']       = $newBalance;
-                    $tabStatus->recovery_data       = $recData;
-
-                    $tabStatus->save();
-
-                    // If active session, update session aggregates
-                    if ($tabStatus->current_session_id) {
-                        $session = \App\Models\TabSession::find($tabStatus->current_session_id);
-                        if ($session) {
-                            $session->total_bet       = (float)$session->total_bet + $totalBet;
-                            $session->total_win       = (float)$session->total_win + $totalWin;
-                            $session->games_played    = (int)$session->games_played + 1;
-                            $session->closing_balance = $newBalance;
-                            $session->save();
-                        }
-                    }
-
-                    $currentCredit = (float)$tabStatus->current_balance;
+                    $currentCredit = (float) $result['current_balance'];
                 }
 
                 $record = RouletteHistory::create([

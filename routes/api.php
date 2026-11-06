@@ -30,7 +30,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/tabs/{id}/configuration',     [TabApiController::class, 'configuration'])->whereNumber('id');
     Route::get('/tabs/{id}/status',            [TabApiController::class, 'status'])->whereNumber('id');
     Route::post('/tabs/{id}/restore',          [TabApiController::class, 'restore'])->whereNumber('id'); // Failure recovery
-    Route::post('/tabs/{id}/heartbeat',        [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::match(['get', 'post'], '/tabs/{id}/heartbeat', [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::post('/tabs/{id}/win',              [TabApiController::class, 'recordWin'])->whereNumber('id');
+    Route::post('/tabs/{id}/loss',             [TabApiController::class, 'recordLoss'])->whereNumber('id');
+    Route::post('/tabs/{id}/game-result',      [TabApiController::class, 'recordGameResult'])->whereNumber('id');
+    Route::post('/tabs/game-result',           [TabApiController::class, 'recordGameResult']);
+    Route::get('/tabs/{id}/balance-logs',      [TabApiController::class, 'balanceLogs'])->whereNumber('id');
 
     Route::get('/game-day/current', [GameDayController::class, 'current']);
     Route::post('/game-day/start', [GameDayController::class, 'start']);
@@ -108,7 +113,12 @@ Route::prefix('tabs')->group(function () {
     Route::get('/{id}/configuration', [TabApiController::class, 'configuration'])->whereNumber('id');
     Route::get('/{id}/status',        [TabApiController::class, 'status'])->whereNumber('id');
     Route::post('/{id}/restore',      [TabApiController::class, 'restore'])->whereNumber('id');
-    Route::post('/{id}/heartbeat',    [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::match(['get', 'post'], '/{id}/heartbeat', [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::post('/{id}/win',          [TabApiController::class, 'recordWin'])->whereNumber('id');
+    Route::post('/{id}/loss',         [TabApiController::class, 'recordLoss'])->whereNumber('id');
+    Route::post('/{id}/game-result',  [TabApiController::class, 'recordGameResult'])->whereNumber('id');
+    Route::post('/game-result',       [TabApiController::class, 'recordGameResult']);
+    Route::get('/{id}/balance-logs',  [TabApiController::class, 'balanceLogs'])->whereNumber('id');
     Route::post('/{id}/bet',          [StationResultController::class, 'placeBet'])->whereNumber('id');
 });
 

@@ -8,6 +8,7 @@ use App\Models\TabSession;
 use App\Models\TabGameConfig;
 use App\Models\GameConfig;
 use App\Models\TableLedger;
+use App\Models\TabBalanceLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -172,7 +173,11 @@ class DashboardController extends Controller
                 $otp = $session->otp;
             }
 
-            $newBalance = $status->current_balance + $amount;
+            $prevBalance = (float) $status->current_balance;
+            $newBalance  = $prevBalance + $amount;
+            $newVersion  = ((int) ($status->balance_version ?? 0)) + 1;
+            $reference   = 'CASHIN-' . $tab->tab_number . '-' . Str::upper(Str::random(5));
+            $now         = now();
 
             // Direct Cage BUYIN Ledger Transaction (No float needed)
             TableLedger::create([
@@ -183,35 +188,66 @@ class DashboardController extends Controller
                 'amount'         => $amount,
                 'tab_balance'    => $newBalance,
                 'float_balance'  => 0.00,
-                'gameday'        => now()->toDateString(),
+                'gameday'        => $now->toDateString(),
                 'processed'      => 1,
-                'reference'      => 'CASHIN-' . $tab->tab_number . '-' . Str::upper(Str::random(5)),
+                'reference'      => $reference,
                 'initiated_by'   => $currentUserId,
             ]);
 
-            // Update TabStatus for disaster recovery
+            // Update TabStatus for disaster recovery & heartbeat tracking
             $status->update([
-                'status'             => 'active',
-                'current_session_id' => $session->session_id,
-                'current_otp'        => $otp,
-                'player_name'        => $session->player_name,
-                'player_phone'       => $session->player_phone,
-                'player_card_id'     => $session->player_card_id,
-                'session_started_at' => $session->opened_at,
-                'current_balance'    => $newBalance,
-                'session_buyin'      => $session->buyin_amount,
-                'shift_total_in'     => $status->shift_total_in + $amount,
-                'last_synced_at'     => now(),
-                'recovery_data'      => [
-                    'tab_id'         => $tab->id,
-                    'tab_name'       => $tab->table_name,
-                    'session_id'     => $session->session_id,
-                    'otp'            => $otp,
-                    'player_name'    => $session->player_name,
-                    'balance'        => $newBalance,
-                    'game_config_id' => $tab->game_config_id,
-                    'updated_at'     => now()->toIso8601String(),
+                'status'               => 'active',
+                'current_session_id'   => $session->session_id,
+                'current_otp'          => $otp,
+                'player_name'          => $session->player_name,
+                'player_phone'         => $session->player_phone,
+                'player_card_id'       => $session->player_card_id,
+                'session_started_at'   => $session->opened_at,
+                'current_balance'      => $newBalance,
+                'balance_version'      => $newVersion,
+                'last_op_type'         => 'BUYIN',
+                'last_op_amount'       => $amount,
+                'last_op_prev_balance' => $prevBalance,
+                'last_op_new_balance'  => $newBalance,
+                'last_op_ref'          => $reference,
+                'last_op_notes'        => 'Cage Buyin',
+                'last_op_at'           => $now,
+                'session_buyin'        => $session->buyin_amount,
+                'shift_total_in'       => $status->shift_total_in + $amount,
+                'last_synced_at'       => $now,
+                'recovery_data'        => [
+                    'tab_id'          => $tab->id,
+                    'tab_name'        => $tab->table_name,
+                    'session_id'      => $session->session_id,
+                    'otp'             => $otp,
+                    'player_name'     => $session->player_name,
+                    'balance'         => $newBalance,
+                    'balance_version' => $newVersion,
+                    'last_operation'  => [
+                        'type'             => 'BUYIN',
+                        'amount'           => $amount,
+                        'previous_balance' => $prevBalance,
+                        'new_balance'      => $newBalance,
+                        'reference'        => $reference,
+                        'notes'            => 'Cage Buyin',
+                        'timestamp'        => $now->toIso8601String(),
+                    ],
+                    'game_config_id'  => $tab->game_config_id,
+                    'updated_at'      => $now->toIso8601String(),
                 ],
+            ]);
+
+            TabBalanceLog::create([
+                'tab_id'          => $tab->id,
+                'session_id'      => $session->session_id,
+                'balance_version' => $newVersion,
+                'op_type'         => 'BUYIN',
+                'amount'          => $amount,
+                'prev_balance'    => $prevBalance,
+                'new_balance'     => $newBalance,
+                'reference'       => $reference,
+                'notes'           => 'Cage Buyin',
+                'metadata'        => ['initiated_by' => $currentUserId],
             ]);
         });
 
@@ -241,7 +277,10 @@ class DashboardController extends Controller
 
         DB::transaction(function () use ($tab, $status) {
             $currentUserId = auth()->id() ?? 1;
-            $balance = (float) $status->current_balance;
+            $balance       = (float) $status->current_balance;
+            $newVersion    = ((int) ($status->balance_version ?? 0)) + 1;
+            $reference     = 'CASHOUT-' . $tab->tab_number . '-' . Str::upper(Str::random(5));
+            $now           = now();
 
             $session = $tab->currentSession;
             if ($session) {
@@ -250,7 +289,7 @@ class DashboardController extends Controller
                     'closing_balance' => 0,
                     'closed_by'       => $currentUserId,
                     'status'          => 'completed',
-                    'closed_at'       => now(),
+                    'closed_at'       => $now,
                 ]);
             }
 
@@ -263,33 +302,64 @@ class DashboardController extends Controller
                 'amount'         => $balance,
                 'tab_balance'    => 0.00,
                 'float_balance'  => 0.00,
-                'gameday'        => now()->toDateString(),
+                'gameday'        => $now->toDateString(),
                 'processed'      => 1,
-                'reference'      => 'CASHOUT-' . $tab->tab_number . '-' . Str::upper(Str::random(5)),
+                'reference'      => $reference,
                 'initiated_by'   => $currentUserId,
             ]);
 
-            // Reset TabStatus
+            // Reset TabStatus with last_operation recorded for heartbeat & disaster recovery
             $status->update([
-                'status'             => 'idle',
-                'current_session_id' => null,
-                'current_otp'        => null,
-                'player_name'        => null,
-                'player_phone'       => null,
-                'player_card_id'     => null,
-                'session_started_at' => null,
-                'current_balance'    => 0.00,
-                'session_buyin'      => 0.00,
-                'session_cashout'    => $balance,
-                'shift_total_out'    => $status->shift_total_out + $balance,
-                'last_synced_at'     => now(),
-                'recovery_data'      => [
-                    'tab_id'         => $tab->id,
-                    'tab_name'       => $tab->table_name,
-                    'balance'        => 0.00,
-                    'status'         => 'idle',
-                    'cleared_at'     => now()->toIso8601String(),
+                'status'               => 'idle',
+                'current_session_id'   => null,
+                'current_otp'          => null,
+                'player_name'          => null,
+                'player_phone'         => null,
+                'player_card_id'       => null,
+                'session_started_at'   => null,
+                'current_balance'      => 0.00,
+                'balance_version'      => $newVersion,
+                'last_op_type'         => 'CASHOUT',
+                'last_op_amount'       => $balance,
+                'last_op_prev_balance' => $balance,
+                'last_op_new_balance'  => 0.00,
+                'last_op_ref'          => $reference,
+                'last_op_notes'        => 'Cage Cashout',
+                'last_op_at'           => $now,
+                'session_buyin'        => 0.00,
+                'session_cashout'      => $balance,
+                'shift_total_out'      => $status->shift_total_out + $balance,
+                'last_synced_at'       => $now,
+                'recovery_data'        => [
+                    'tab_id'          => $tab->id,
+                    'tab_name'        => $tab->table_name,
+                    'balance'         => 0.00,
+                    'balance_version' => $newVersion,
+                    'status'          => 'idle',
+                    'last_operation'  => [
+                        'type'             => 'CASHOUT',
+                        'amount'           => $balance,
+                        'previous_balance' => $balance,
+                        'new_balance'      => 0.00,
+                        'reference'        => $reference,
+                        'notes'            => 'Cage Cashout',
+                        'timestamp'        => $now->toIso8601String(),
+                    ],
+                    'cleared_at'      => $now->toIso8601String(),
                 ],
+            ]);
+
+            TabBalanceLog::create([
+                'tab_id'          => $tab->id,
+                'session_id'      => $session?->session_id,
+                'balance_version' => $newVersion,
+                'op_type'         => 'CASHOUT',
+                'amount'          => $balance,
+                'prev_balance'    => $balance,
+                'new_balance'     => 0.00,
+                'reference'       => $reference,
+                'notes'           => 'Cage Cashout',
+                'metadata'        => ['initiated_by' => $currentUserId],
             ]);
         });
 

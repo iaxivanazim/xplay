@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Models\TableLedger;
 use App\Models\GameTable;
+use App\Models\Tab;
+use App\Services\TabBalanceService;
 
 class TableLedgerController extends Controller
 {
@@ -179,6 +181,31 @@ class TableLedgerController extends Controller
                     'reference'      => $request->reference,
                     'initiated_by'   => $request->initiated_by,
                 ]);
+
+                // Sync TabStatus if this transaction targets a tab
+                if ($request->filled('tab_id')) {
+                    $tab = Tab::find($request->tab_id) ?? Tab::where('tab_number', $request->tab_id)->first();
+                    if ($tab) {
+                        $mappedOp = match($request->txn_type) {
+                            'BUYIN'   => TabBalanceService::OP_BUYIN,
+                            'CASHOUT' => TabBalanceService::OP_CASHOUT,
+                            'PAYOUT'  => TabBalanceService::OP_WIN,
+                            'LOSS'    => TabBalanceService::OP_LOSS,
+                            'BET'     => TabBalanceService::OP_BET,
+                            default   => null,
+                        };
+                        if ($mappedOp) {
+                            app(TabBalanceService::class)->applyOperation(
+                                tab: $tab,
+                                type: $mappedOp,
+                                amount: (float) $request->amount,
+                                reference: $request->reference ?? "TXN-{$txn->txn_id}",
+                                notes: "Ledger {$request->txn_type}",
+                                metadata: ['ledger_txn_id' => $txn->txn_id, 'table_id' => $request->table_id]
+                            );
+                        }
+                    }
+                }
 
                 $lock->release();
 

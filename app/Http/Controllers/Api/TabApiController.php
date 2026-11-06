@@ -7,10 +7,18 @@ use App\Models\Tab;
 use App\Models\TabStatus;
 use App\Models\TabSession;
 use App\Models\GameConfig;
+use App\Services\TabBalanceService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class TabApiController extends Controller
 {
+    protected TabBalanceService $balanceService;
+
+    public function __construct(TabBalanceService $balanceService)
+    {
+        $this->balanceService = $balanceService;
+    }
     /**
      * GET /api/v1/tabs
      */
@@ -260,6 +268,8 @@ class TabApiController extends Controller
                 'status'            => $status?->status ?? 'idle',
                 'lock_status'       => $tab->lock_status,
                 'current_balance'   => $status ? (float)$status->current_balance : 0.00,
+                'balance_version'   => $status ? (int)($status->balance_version ?? 1) : 1,
+                'last_operation'    => $this->balanceService->formatLastOperation($status),
                 'current_otp'       => $status?->current_otp,
                 'player_name'       => $status?->player_name,
                 'last_game_no'      => $status?->last_game_no,
@@ -308,6 +318,8 @@ class TabApiController extends Controller
                 'status'            => $status->status,
                 'lock_status'       => $status->lock_status,
                 'current_balance'   => (float) $status->current_balance,
+                'balance_version'   => (int) ($status->balance_version ?? 1),
+                'last_operation'    => $this->balanceService->formatLastOperation($status),
                 'current_otp'       => $status->current_otp,
                 'player_name'       => $status->player_name,
                 'player_phone'      => $status->player_phone,
@@ -327,19 +339,39 @@ class TabApiController extends Controller
     }
 
     /**
-     * POST /api/v1/tabs/{id}/heartbeat
-     * Tab keepalive ping to sync status and last bet.
+     * POST|GET /api/v1/tabs/{id}/heartbeat
+     * Tab keepalive ping to sync status and receive authoritative balance
+     * along with the last operation that changed it (BUYIN, CASHOUT, WIN, LOSS).
      */
     public function heartbeat(Request $request, $id)
     {
-        $tab = Tab::findOrFail($id);
+        $tab = Tab::with('statusRecord')->find($id)
+            ?? Tab::with('statusRecord')->where('tab_number', $id)->first();
+
+        if (!$tab) {
+            return response()->json([
+                'success' => false,
+                'message' => "Tab with identifier '{$id}' not found.",
+            ], 404);
+        }
 
         $tab->update([
             'connection_status' => 'online',
             'last_seen_at'      => now(),
         ]);
 
-        if ($tab->statusRecord) {
+        $status = $tab->statusRecord;
+        if (!$status) {
+            $status = TabStatus::create([
+                'tab_id'            => $tab->id,
+                'status'            => 'idle',
+                'lock_status'       => $tab->lock_status ?? 'unlocked',
+                'current_balance'   => 0.00,
+                'balance_version'   => 1,
+                'connection_status' => 'online',
+                'last_synced_at'    => now(),
+            ]);
+        } else {
             $updateData = [
                 'connection_status' => 'online',
                 'last_synced_at'    => now(),
@@ -350,17 +382,211 @@ class TabApiController extends Controller
                 $updateData['last_game_at'] = now();
             }
 
-            if ($request->filled('current_balance')) {
-                $updateData['current_balance'] = (float) $request->current_balance;
-            }
-
-            $tab->statusRecord->update($updateData);
+            $status->update($updateData);
         }
 
+        $currentBalance = (float) $status->current_balance;
+        $balanceVersion = (int) ($status->balance_version ?? 1);
+
+        // Detect if balance changed since client's known state
+        $balanceChanged = false;
+        if ($request->has('known_version')) {
+            $balanceChanged = ((int) $request->input('known_version') !== $balanceVersion);
+        } elseif ($request->has('known_balance')) {
+            $balanceChanged = (abs((float) $request->input('known_balance') - $currentBalance) > 0.001);
+        } elseif ($request->has('current_balance')) {
+            $balanceChanged = (abs((float) $request->input('current_balance') - $currentBalance) > 0.001);
+        } elseif ($status->last_op_at !== null) {
+            $balanceChanged = true;
+        }
+
+        $lastOperation = $this->balanceService->formatLastOperation($status);
+
         return response()->json([
-            'success'     => true,
-            'lock_status' => $tab->lock_status,
-            'timestamp'   => now()->toIso8601String(),
+            'success'           => true,
+            'tab_id'            => $tab->id,
+            'tab_number'        => $tab->tab_number,
+            'tab_name'          => $tab->table_name,
+            'lock_status'       => $tab->lock_status,
+            'connection_status' => 'online',
+            'current_balance'   => $currentBalance,
+            'balance_version'   => $balanceVersion,
+            'balance_changed'   => $balanceChanged,
+            'last_operation'    => $lastOperation,
+            'timestamp'         => now()->toIso8601String(),
+        ]);
+    }
+
+    /**
+     * POST /api/v1/tabs/{id}/win
+     * External API endpoint to record a game win payout on a tab.
+     */
+    public function recordWin(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'amount'    => 'required|numeric|min:0.01',
+            'game_no'   => 'nullable|string|max:100',
+            'game_type' => 'nullable|string|max:50',
+            'notes'     => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $tab = Tab::find($id) ?? Tab::where('tab_number', $id)->first();
+        if (!$tab) {
+            return response()->json([
+                'success' => false,
+                'message' => "Tab '{$id}' not found.",
+            ], 404);
+        }
+
+        $result = $this->balanceService->applyOperation(
+            tab: $tab,
+            type: TabBalanceService::OP_WIN,
+            amount: (float) $request->amount,
+            reference: $request->game_no,
+            notes: $request->notes ?? ('Game Win' . ($request->game_type ? " ({$request->game_type})" : '')),
+            metadata: array_filter([
+                'game_no'   => $request->game_no,
+                'game_type' => $request->game_type,
+            ])
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Win payout of \${$request->amount} recorded for Tab '{$tab->table_name}'.",
+            'data'    => $result,
+        ], 200);
+    }
+
+    /**
+     * POST /api/v1/tabs/{id}/loss
+     * External API endpoint to record a loss / lost bet on a tab.
+     */
+    public function recordLoss(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'amount'    => 'required|numeric|min:0.01',
+            'game_no'   => 'nullable|string|max:100',
+            'game_type' => 'nullable|string|max:50',
+            'notes'     => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $tab = Tab::find($id) ?? Tab::where('tab_number', $id)->first();
+        if (!$tab) {
+            return response()->json([
+                'success' => false,
+                'message' => "Tab '{$id}' not found.",
+            ], 404);
+        }
+
+        $result = $this->balanceService->applyOperation(
+            tab: $tab,
+            type: TabBalanceService::OP_LOSS,
+            amount: (float) $request->amount,
+            reference: $request->game_no,
+            notes: $request->notes ?? ('Game Loss' . ($request->game_type ? " ({$request->game_type})" : '')),
+            metadata: array_filter([
+                'game_no'   => $request->game_no,
+                'game_type' => $request->game_type,
+            ])
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Loss of \${$request->amount} recorded for Tab '{$tab->table_name}'.",
+            'data'    => $result,
+        ], 200);
+    }
+
+    /**
+     * POST /api/v1/tabs/{id?}/game-result
+     * External API endpoint to record a full round result (bet and win).
+     */
+    public function recordGameResult(Request $request, $id = null)
+    {
+        $id = $id ?? $request->input('tab_id', $request->input('id'));
+
+        $validator = Validator::make($request->all(), [
+            'bet_amount' => 'required|numeric|min:0',
+            'win_amount' => 'required|numeric|min:0',
+            'game_no'    => 'nullable|string|max:100',
+            'game_type'  => 'nullable|string|max:50',
+            'notes'      => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $tab = Tab::find($id) ?? Tab::where('tab_number', $id)->first();
+        if (!$tab) {
+            return response()->json([
+                'success' => false,
+                'message' => "Tab '{$id}' not found.",
+            ], 404);
+        }
+
+        $result = $this->balanceService->applyGameResult(
+            tab: $tab,
+            betAmount: (float) $request->bet_amount,
+            winAmount: (float) $request->win_amount,
+            gameNo: $request->game_no,
+            gameType: $request->game_type ?? 'ETG',
+            metadata: array_filter([
+                'notes' => $request->notes,
+            ])
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => "Game result recorded for Tab '{$tab->table_name}'.",
+            'data'    => $result,
+        ], 200);
+    }
+
+    /**
+     * GET /api/v1/tabs/{id}/balance-logs
+     * Returns the recent balance changes / audit trail for the tab.
+     */
+    public function balanceLogs(Request $request, $id)
+    {
+        $tab = Tab::find($id) ?? Tab::where('tab_number', $id)->first();
+        if (!$tab) {
+            return response()->json([
+                'success' => false,
+                'message' => "Tab '{$id}' not found.",
+            ], 404);
+        }
+
+        $limit = min(100, max(1, (int) $request->input('limit', 20)));
+        $sinceVersion = $request->has('since_version') ? (int) $request->input('since_version') : null;
+
+        $logs = $this->balanceService->getRecentLogs($tab, $limit, $sinceVersion);
+
+        return response()->json([
+            'success'         => true,
+            'tab_id'          => $tab->id,
+            'tab_number'      => $tab->tab_number,
+            'current_balance' => (float) ($tab->statusRecord?->current_balance ?? 0.00),
+            'balance_version' => (int) ($tab->statusRecord?->balance_version ?? 1),
+            'count'           => count($logs),
+            'data'            => $logs,
         ]);
     }
 

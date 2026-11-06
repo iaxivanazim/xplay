@@ -73,6 +73,11 @@ class Tab extends Model
         return $this->hasMany(TabSession::class, 'tab_id');
     }
 
+    public function balanceLogs()
+    {
+        return $this->hasMany(TabBalanceLog::class, 'tab_id')->latest();
+    }
+
     public function ledgers()
     {
         return $this->hasMany(TableLedger::class, 'tab_id', 'id');
