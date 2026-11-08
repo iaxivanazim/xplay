@@ -133,7 +133,7 @@
                                         @endif
                                         @if($cfg->device_ip)
                                             <div>
-                                                <span class="text-white-50"><i class="bi bi-hdd-network me-1"></i>Device IP:</span>
+                                                <span class="text-white-50"><i class="bi bi-hdd-network me-1"></i>Table IP:</span>
                                                 <span class="text-info fw-semibold">{{ $cfg->device_ip }}</span>
                                             </div>
                                         @endif

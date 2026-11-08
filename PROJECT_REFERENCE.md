@@ -326,9 +326,9 @@ The system is organized into three distinct, specialized modules as requested by
   - `connection_status`: `online`, `offline`, `disconnected`.
 - **UI View (`resources/views/tabs/index.blade.php`):**
   - **Faithfully replicates mockup `WhatsApp Image 2026-09-15 at 9.28.14 PM.jpeg`**:
-    - Top KPI strip: User (Cashier), Period, Time, Total In, Total Out, Difference, Total Bet, Total Win, FT In, FT Out, Bill In, Hand Pay, Credits ($514.95 in bright amber), Float: 0.00.
-    - Left Jackpots card: Megapot ($9,943.82) & Tournament ($300.00).
-    - Table columns: `U` (Unlock/Lock badge), `NO`, `E` (Enabled Y/N), `F` (Free Y/N), `A` (Active Y/N), `NAME`, `DENOMINATION`, `CREDITS`, `PROMO`, `LAST BET`, `GAMES`, `IN`, `OUT`, `BALANCE` (green for positive, red for negative), `BILL IN`, `FT IN`, `FT OUT`, `BET`, `CONFIG`, `ACTIONS`.
+    - Top KPI strip: User (Cashier), Period, Time, Total In, Total Out, Difference, Total Bet, Total Win, Total Difference, Opening Float, Float Balance. (Note: Legacy physical slot metrics like FT In/Out, Bill In, and Megapot/Tournament jackpots have been removed).
+    - Left Actions card: Quick access to Bulk Add Tabs, New Single Tab, and Game Configs.
+    - Table columns: `U` (Unlock/Lock badge), `NO`, `E` (Enabled Y/N), `F` (Free Y/N), `A` (Active Y/N), `NAME`, `DENOMINATION`, `CREDITS`, `PROMO`, `LAST BET`, `GAMES`, `IN`, `OUT`, `BALANCE` (green for positive, red for negative), `BET`, `CONFIG`, `ACTIONS`.
 - **Bulk Tab Provisioning (`/tabs/bulk-create`):**
   - Allows cashiers/administrators to rapidly generate banks of 5, 10, 20+ tabs in a single transaction with one shared basic game configuration.
   - Supports naming prefix templates (`Amatic-`, `Apex-`, `VIP-`, `TAB-`), sequential numbering, starting IP auto-incrementation, denomination, and initial lock status.
@@ -420,9 +420,10 @@ sequenceDiagram
   - [x] Created `TabSeeder` seeding 42 machines matching the client screenshot.
   - [x] Built `TabController` and `resources/views/tabs/index.blade.php` matching `WhatsApp Image 2026-09-15 at 9.28.14 PM.jpeg`.
   - [x] Implemented Tab CRUD (`create`, `edit`, `store`, `update`, `destroy`, `toggleLock`, `deactivate`, `restore`, `unregisterMac`).
+  - [x] Implemented bulk tab creation (`tabs.bulk_create` / `tabs.bulk_store`) with multi-layer duplicate MAC address validation (client-side interactive warnings, server batch uniqueness, database uniqueness with conflict details, and SQL exception catching with dismissible UI alerts).
 - [x] **Phase 5: Module 3 (`Dashboard` - Cashier Cage) Implementation**
   - [x] Built 7-column card grid in `resources/views/dashboard.blade.php` matching `WhatsApp Image 2026-09-15 at 5.26.20 PM.jpeg`.
-  - [x] Configured KPI header strip (User, Period, Time, Total In, Total Out, Diff, Total Bet, Total Win, FT In, FT Out, Bill In, Credits, Machines, Active, Megapot, Tournament).
+  - [x] Configured KPI header strip (User, Period, Time, Total In, Total Out, Diff, Total Bet, Total Win, Total Diff, Machines, Active). Legacy physical slot elements (FT In/Out, Bill In, Jackpots) pruned.
   - [x] Implemented interactive cashier drawer modal on tab card click.
   - [x] Implemented Cage Cashin (Buyin) with player-generated OTP flow: session opens with `otp = NULL` and remains null until player sets it.
   - [x] Implemented Break Mode with on-tablet prompt for player to generate desired session OTP on first lock, preserving session and OTP across breaks until cashout.

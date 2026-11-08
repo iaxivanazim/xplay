@@ -25,34 +25,72 @@
             font-weight: 700;
             font-size: 13px;
         }
-        .cage-credits-text {
-            color: #f59e0b !important;
-            font-family: monospace;
-            font-weight: 800;
-            font-size: 13px;
+
+        /* Main Dashboard Two-Column Flex Layout */
+        .cage-dashboard-main {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            width: 100%;
+            min-width: 0;
+        }
+        .cage-tabs-area {
+            flex: 1 1 0%;
+            min-width: 0;
+            max-width: 100%;
+            width: 100%;
+        }
+        .cage-sidebar-area {
+            flex: 0 0 210px;
+            width: 210px;
+            min-width: 210px;
+            position: sticky;
+            top: 16px;
+        }
+        @media (max-width: 991px) {
+            .cage-dashboard-main {
+                flex-direction: column;
+            }
+            .cage-sidebar-area {
+                flex: 1 1 auto;
+                width: 100%;
+                min-width: 0;
+                position: static;
+            }
         }
 
         /* 7-Column Grid Layout */
         .tab-grid-container {
             display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 10px;
+            width: 100%;
+            min-width: 0;
         }
-        @media (max-width: 1400px) {
-            .tab-grid-container { grid-template-columns: repeat(6, 1fr); }
+        @media (max-width: 1600px) {
+            .tab-grid-container { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
         }
-        @media (max-width: 1100px) {
-            .tab-grid-container { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 1350px) {
+            .tab-grid-container { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
         }
-        @media (max-width: 768px) {
-            .tab-grid-container { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 1150px) {
+            .tab-grid-container { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+        }
+        @media (max-width: 900px) {
+            .tab-grid-container { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+        }
+        @media (max-width: 680px) {
+            .tab-grid-container { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        }
+        @media (max-width: 480px) {
+            .tab-grid-container { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
         }
 
         /* Tab Card Styling */
         .tab-card {
             background: #111f30;
             border-radius: 8px;
-            padding: 16px 10px;
+            padding: 12px 6px;
             text-align: center;
             cursor: pointer;
             transition: all 0.18s ease-in-out;
@@ -60,8 +98,12 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            min-height: 108px;
+            min-height: 104px;
             user-select: none;
+            box-sizing: border-box;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
         }
         .tab-card:hover {
             transform: translateY(-2px);
@@ -86,14 +128,18 @@
 
         /* Card Content */
         .tab-card-num {
-            font-size: 26px;
+            font-size: 24px;
             font-weight: 800;
             color: #ffffff;
-            line-height: 1;
-            margin-bottom: 4px;
+            line-height: 1.1;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
         .tab-card-name {
-            font-size: 13px;
+            font-size: 12px;
             color: #94a3b8;
             font-weight: 500;
             letter-spacing: 0.02em;
@@ -101,13 +147,19 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 100%;
+            display: block;
         }
         .tab-card-balance {
             font-family: monospace;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
             color: #38bdf8;
-            line-height: 1;
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
         .tab-card.border-active .tab-card-balance {
             color: #fbbf24;
@@ -122,7 +174,9 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            min-height: 600px;
+            min-height: 520px;
+            box-sizing: border-box;
+            width: 100%;
         }
         .cage-action-btn {
             background: #172a3d;
@@ -184,7 +238,6 @@
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
                 {{-- Column 1: User / Period / Time --}}
                 <div class="d-flex align-items-center gap-2">
-                    <span class="badge rounded-circle p-2 bg-primary text-white fw-bold" style="font-size:11px;">STA</span>
                     <div>
                         <div>User: <strong class="text-white">{{ auth()->user()->name ?? 'Cashier' }}</strong></div>
                         <div>Period: <span class="text-white-50">{{ now()->format('d-m-Y') }}</span></div>
@@ -206,30 +259,10 @@
                     <div>Difference: <span class="cage-kpi-bold {{ $betWinDiff >= 0 ? 'text-success' : 'text-danger' }}">{{ number_format($betWinDiff, 2) }}</span></div>
                 </div>
 
-                {{-- Column 4: FT in / out / difference --}}
-                <div>
-                    <div>FT in: <span class="cage-kpi-bold">{{ number_format($ftIn, 2) }}</span></div>
-                    <div>FT out: <span class="cage-kpi-bold">{{ number_format($ftOut, 2) }}</span></div>
-                    <div>Difference: <span class="cage-kpi-bold text-danger">{{ number_format($ftDiff, 2) }}</span></div>
-                </div>
-
-                {{-- Column 5: Bill in / Hand pay / Credits --}}
-                <div>
-                    <div>Bill in: <span class="cage-kpi-bold">{{ number_format($billIn, 2) }}</span></div>
-                    <div>Hand pay: <span class="cage-kpi-bold">0.00</span></div>
-                    <div>Credits: <span class="cage-credits-text">{{ number_format($credits, 2) }}</span></div>
-                </div>
-
-                {{-- Column 6: Machines & Active --}}
+                {{-- Column 4: Machines & Active --}}
                 <div>
                     <div>Machines: <strong class="text-white">{{ $machinesCount }}</strong></div>
                     <div>Active: <strong class="text-success">{{ $activeCount }}</strong> <span style="color:#10b981;">●●●</span></div>
-                </div>
-
-                {{-- Column 7: Jackpots --}}
-                <div>
-                    <div>Megapot: <strong class="text-warning font-monospace">$9,942.23</strong></div>
-                    <div>Tournament: <strong class="text-warning font-monospace">$300.00</strong></div>
                 </div>
 
                 {{-- Far Right Gear --}}
@@ -242,9 +275,9 @@
         </div>
 
         {{-- MAIN BODY: Grid on left + Sidebar on right --}}
-        <div class="row g-3">
+        <div class="cage-dashboard-main">
             {{-- Main 7-Column Grid of Tabs --}}
-            <div class="col-xl-10 col-lg-9">
+            <div class="cage-tabs-area">
                 <div class="tab-grid-container" id="tabGrid">
                     @forelse($tabs as $tab)
                         @php
@@ -271,7 +304,7 @@
                             <div class="tab-card-balance">${{ number_format($balance, 2) }}</div>
                         </div>
                     @empty
-                        <div class="col-12 text-center py-5 text-secondary">
+                        <div class="w-100 text-center py-5 text-secondary" style="grid-column: 1 / -1;">
                             No tabs configured. <a href="{{ route('tabs.create') }}" class="text-warning">Deploy tabs</a>.
                         </div>
                     @endforelse
@@ -279,7 +312,7 @@
             </div>
 
             {{-- Right Sidebar --}}
-            <div class="col-xl-2 col-lg-3">
+            <div class="cage-sidebar-area">
                 <div class="cage-sidebar-panel">
                     <div>
                         <div class="mb-4">
@@ -360,7 +393,7 @@
                     <ul class="nav nav-pills mb-3 border-bottom border-secondary pb-2" id="drawerTabNav" role="tablist">
                         <li class="nav-item">
                             <button class="nav-link active btn-sm" id="tab-cashin-btn" data-bs-toggle="pill" data-bs-target="#pane-cashin" type="button">
-                                <i class="bi bi-plus-circle me-1"></i>Cashin / Assign Player
+                                <i class="bi bi-plus-circle me-1"></i>Buyin / Assign Player
                             </button>
                         </li>
                         <li class="nav-item">
@@ -392,7 +425,7 @@
                                 @csrf
                                 <div class="row g-3">
                                     <div class="col-md-6">
-                                        <label class="form-label text-secondary small">Cashin Amount ($) <span class="text-danger">*</span></label>
+                                        <label class="form-label text-secondary small">Buyin Amount ($) <span class="text-danger">*</span></label>
                                         <div class="input-group">
                                             <span class="input-group-text bg-black border-secondary text-warning fw-bold">$</span>
                                             <input type="number" step="1" min="1" name="amount" class="form-control bg-black text-warning fs-5 fw-bold border-secondary" placeholder="100.00" required>
@@ -416,7 +449,7 @@
                                             Transacted directly through Cage ledger as pure cash. Player will set their desired session OTP upon first locking the tab (Break Mode).
                                         </div>
                                         <button type="submit" class="btn btn-success fw-bold px-4 py-2">
-                                            <i class="bi bi-check-lg me-1"></i>Process Cashin &amp; Start Session
+                                            <i class="bi bi-check-lg me-1"></i>Process Buyin &amp; Start Session
                                         </button>
                                     </div>
                                 </div>

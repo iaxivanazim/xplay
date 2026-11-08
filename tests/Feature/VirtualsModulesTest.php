@@ -23,8 +23,9 @@ class VirtualsModulesTest extends TestCase
         $response = $this->actingAs($admin)->get('/dashboard');
 
         $response->assertStatus(200);
-        $response->assertSee('STA');
-        $response->assertSee('Megapot');
+        $response->assertSee('Total in');
+        $response->assertSee('Machines:');
+        $response->assertDontSee('Megapot');
         $response->assertSee('Amatic-1');
     }
 
@@ -39,9 +40,12 @@ class VirtualsModulesTest extends TestCase
         $response->assertSee('CREDITS');
         $response->assertSee('LAST BET');
         $response->assertSee('GAMES');
-        $response->assertSee('BILL IN');
-        $response->assertSee('FT IN');
-        $response->assertSee('FT OUT');
+        $response->assertSee('IN');
+        $response->assertSee('OUT');
+        $response->assertSee('BALANCE');
+        $response->assertDontSee('BILL IN');
+        $response->assertDontSee('FT IN');
+        $response->assertDontSee('FT OUT');
     }
 
     public function test_game_configs_index_renders_successfully()

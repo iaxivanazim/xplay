@@ -21,17 +21,45 @@
             </div>
         </div>
 
-        {{-- Errors --}}
+        {{-- Session Flash Notifications --}}
+        @if (session('success'))
+            <div class="alert alert-success alert-dismissible fade show border-0 mb-3" style="background:#0f2e1a; color:#6fcf97;">
+                <i class="bi bi-check-circle me-2"></i>{{ session('success') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if (session('error'))
+            <div class="alert alert-danger alert-dismissible fade show border-0 mb-3" style="background:#2e1010; color:#eb5757;">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ session('error') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if (session('warning'))
+            <div class="alert alert-warning alert-dismissible fade show border-0 mb-3" style="background:#2e240a; color:#f2c94c;">
+                <i class="bi bi-exclamation-circle me-2"></i>{{ session('warning') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+
+        {{-- Validation Errors --}}
         @if ($errors->any())
-            <div class="alert alert-danger border-0 mb-4" style="background:#2e1010; color:#eb5757;">
-                <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i>Validation Errors</div>
+            <div class="alert alert-danger alert-dismissible fade show border-0 mb-4" style="background:#2e1010; color:#eb5757;">
+                <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i>Validation Error</div>
                 <ul class="mb-0 ps-3 small">
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
                     @endforeach
                 </ul>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
             </div>
         @endif
+
+        {{-- Dynamic Client-Side Alert Box --}}
+        <div id="clientValidationAlert" class="alert alert-danger alert-dismissible fade show border-0 mb-3 d-none" style="background:#2e1010; color:#eb5757;">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i>
+            <span id="clientValidationMessage"></span>
+            <button type="button" class="btn-close btn-close-white" onclick="hideClientAlert()"></button>
+        </div>
 
         <form method="POST" action="{{ route('tabs.bulk_store') }}" id="bulkTabForm">
             @csrf
@@ -219,6 +247,21 @@
 
     {{-- Dynamic Preview Table Generation Script --}}
     <script>
+        function hideClientAlert() {
+            const alertBox = document.getElementById('clientValidationAlert');
+            if (alertBox) alertBox.classList.add('d-none');
+        }
+
+        function showClientAlert(msg) {
+            const alertBox = document.getElementById('clientValidationAlert');
+            const msgSpan = document.getElementById('clientValidationMessage');
+            if (alertBox && msgSpan) {
+                msgSpan.textContent = msg;
+                alertBox.classList.remove('d-none');
+                alertBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
             const prefixInput     = document.getElementById('namingPrefixInput');
             const startNumInput   = document.getElementById('startNumberInput');
@@ -228,6 +271,8 @@
             const previewBadge    = document.getElementById('previewBadge');
             const submitCountLbl  = document.getElementById('submitCountLabel');
             const submitBtn       = document.getElementById('submitBulkBtn');
+            const bulkForm        = document.getElementById('bulkTabForm');
+            const initialOldTabs  = @json(old('tabs', []));
 
             // Quick prefix buttons
             document.querySelectorAll('.prefix-quick-btn').forEach(btn => {
@@ -300,7 +345,7 @@
                     </td>
                     <td>
                         <input type="text" name="tabs[${index}][active_mac]" value="${mac || ''}"
-                            class="form-control form-control-sm bg-black text-white border-secondary font-monospace" placeholder="Optional">
+                            class="form-control form-control-sm bg-black text-white border-secondary font-monospace text-uppercase row-tab-mac" placeholder="Optional">
                     </td>
                     <td class="text-center">
                         <button type="button" class="btn btn-outline-danger btn-sm p-1 py-0 delete-row-btn" title="Remove Tab">
@@ -308,6 +353,13 @@
                         </button>
                     </td>
                 `;
+
+                // Clear validation errors when typing
+                tr.querySelectorAll('input').forEach(input => {
+                    input.addEventListener('input', function () {
+                        this.classList.remove('border-danger', 'border-2');
+                    });
+                });
 
                 tr.querySelector('.delete-row-btn').addEventListener('click', function () {
                     tr.remove();
@@ -360,6 +412,91 @@
                 updateCounters();
             }
 
+            // Client-side batch pre-validation to provide instant alerts and prevent accidental duplicates
+            bulkForm.addEventListener('submit', function (e) {
+                const rows = tbody.querySelectorAll('tr');
+                if (rows.length === 0) {
+                    e.preventDefault();
+                    showClientAlert('Please add at least one tab row to create.');
+                    return;
+                }
+
+                // Clear previous red borders
+                tbody.querySelectorAll('input').forEach(input => input.classList.remove('border-danger', 'border-2'));
+                hideClientAlert();
+
+                const tabNums = [];
+                const tabNames = [];
+                const macMap = {};
+                let hasError = false;
+                let errorMessage = '';
+
+                rows.forEach((row, idx) => {
+                    const numInput  = row.querySelector('input[name$="[tab_number]"]');
+                    const nameInput = row.querySelector('input[name$="[table_name]"]');
+                    const macInput  = row.querySelector('input[name$="[active_mac]"]');
+
+                    const numVal      = parseInt(numInput?.value, 10);
+                    const nameVal     = nameInput?.value?.trim();
+                    const rawMacVal   = macInput?.value?.trim();
+                    const cleanMacVal = rawMacVal ? rawMacVal.toUpperCase().replace(/-/g, ':') : '';
+
+                    // Tab Number duplicate check
+                    if (numVal) {
+                        if (tabNums.includes(numVal)) {
+                            numInput?.classList.add('border-danger', 'border-2');
+                            rows.forEach(r => {
+                                const n = r.querySelector('input[name$="[tab_number]"]');
+                                if (parseInt(n?.value, 10) === numVal) n?.classList.add('border-danger', 'border-2');
+                            });
+                            if (!errorMessage) errorMessage = `Duplicate Tab #${numVal} found in multiple rows. Each tab must have a unique number.`;
+                            hasError = true;
+                        }
+                        tabNums.push(numVal);
+                    }
+
+                    // Tab Name duplicate check
+                    if (nameVal) {
+                        const lowerName = nameVal.toLowerCase();
+                        if (tabNames.includes(lowerName)) {
+                            nameInput?.classList.add('border-danger', 'border-2');
+                            rows.forEach(r => {
+                                const n = r.querySelector('input[name$="[table_name]"]');
+                                if (n?.value?.trim().toLowerCase() === lowerName) n?.classList.add('border-danger', 'border-2');
+                            });
+                            if (!errorMessage) errorMessage = `Duplicate tab name "${nameVal}" found in multiple rows. Each tab must have a unique name.`;
+                            hasError = true;
+                        }
+                        tabNames.push(lowerName);
+                    }
+
+                    // MAC Address duplicate check
+                    if (cleanMacVal) {
+                        if (macMap[cleanMacVal]) {
+                            macInput?.classList.add('border-danger', 'border-2');
+                            macMap[cleanMacVal].forEach(otherInput => otherInput.classList.add('border-danger', 'border-2'));
+                            if (!errorMessage) {
+                                errorMessage = `Duplicate MAC address "${cleanMacVal}" entered in multiple rows. Each tablet must have a unique MAC address or leave it blank.`;
+                            }
+                            hasError = true;
+                            macMap[cleanMacVal].push(macInput);
+                        } else {
+                            macMap[cleanMacVal] = [macInput];
+                        }
+                    }
+                });
+
+                if (hasError) {
+                    e.preventDefault();
+                    showClientAlert(errorMessage);
+                    const firstErr = tbody.querySelector('.border-danger');
+                    if (firstErr) {
+                        firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        firstErr.focus();
+                    }
+                }
+            });
+
             function debounce(func, wait) {
                 let timeout;
                 return function (...args) {
@@ -368,8 +505,16 @@
                 };
             }
 
-            // Initial render
-            generatePreview();
+            // If returning from validation failure with old input rows, restore them
+            if (Array.isArray(initialOldTabs) && initialOldTabs.length > 0) {
+                tbody.innerHTML = '';
+                initialOldTabs.forEach((row, idx) => {
+                    addRow(idx, row.tab_number || (idx + 1), row.table_name || '', row.ip_address || '', row.active_mac || '');
+                });
+                updateCounters();
+            } else {
+                generatePreview();
+            }
         });
     </script>
 </x-app-layout>

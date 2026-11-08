@@ -137,18 +137,6 @@
             </div>
 
             <div>
-                <div>FT in: <span class="cage-kpi-val">{{ number_format($ftIn, 2) }}</span></div>
-                <div>FT out: <span class="cage-kpi-val">{{ number_format($ftOut, 2) }}</span></div>
-                <div>Difference: <span class="cage-kpi-val text-danger">{{ number_format($ftIn - $ftOut, 2) }}</span></div>
-            </div>
-
-            <div>
-                <div>Bill in: <span class="cage-kpi-val">{{ number_format($billIn, 2) }}</span></div>
-                <div>Hand pay: <span class="cage-kpi-val">0.00</span></div>
-                <div>Credits: <span class="cage-credits">{{ number_format($credits, 2) }}</span></div>
-            </div>
-
-            <div>
                 <div>Opening Float: <span class="cage-kpi-val">0.00</span></div>
                 <div>Float Balance: <span class="cage-kpi-val">0.00</span></div>
             </div>
@@ -184,22 +172,8 @@
     @endif
 
     <div class="row g-3">
-        {{-- Left Column: Jackpots Panel --}}
+        {{-- Left Column: Actions Panel --}}
         <div class="col-lg-2">
-            <div class="jackpot-card mb-3">
-                <div class="text-uppercase fw-bold text-secondary small mb-3" style="letter-spacing:0.08em;">
-                    <i class="bi bi-trophy-fill text-warning me-1"></i>JACKPOTS
-                </div>
-                <div class="mb-3">
-                    <div class="text-secondary small">Megapot</div>
-                    <div class="fs-5 fw-bold text-warning font-monospace">$9,943.82</div>
-                </div>
-                <div class="mb-2">
-                    <div class="text-secondary small">TOURNAMENT</div>
-                    <div class="fs-6 fw-bold text-warning font-monospace">$300.00</div>
-                </div>
-            </div>
-
             <div class="jackpot-card mb-3">
                 <div class="text-uppercase fw-bold text-secondary small mb-2">Actions</div>
                 <a href="{{ route('tabs.bulk_create') }}" class="btn btn-warning w-100 btn-sm fw-bold mb-2">
@@ -267,9 +241,6 @@
                             <th class="text-end">IN</th>
                             <th class="text-end">OUT</th>
                             <th class="text-end">BALANCE</th>
-                            <th class="text-end">BILL IN</th>
-                            <th class="text-end">FT IN</th>
-                            <th class="text-end">FT OUT</th>
                             <th class="text-end">BET</th>
                             <th>CONFIG</th>
                             <th class="text-center">ACTIONS</th>
@@ -290,9 +261,6 @@
                                 $inVal      = $status ? (float)$status->shift_total_in : 0.00;
                                 $outVal     = $status ? (float)$status->shift_total_out : 0.00;
                                 $balanceVal = $inVal - $outVal;
-                                $billInVal  = $inVal * 0.70;
-                                $ftInVal    = $inVal * 0.30;
-                                $ftOutVal   = $outVal;
                                 $betVal     = $status ? (float)$status->shift_total_bet : 0.00;
                             @endphp
                             <tr>
@@ -361,15 +329,6 @@
                                 <td class="text-end {{ $balanceVal >= 0 ? 'val-positive' : 'val-negative' }}">
                                     ${{ number_format($balanceVal, 2) }}
                                 </td>
-
-                                {{-- BILL IN --}}
-                                <td class="text-end text-white-50">${{ number_format($billInVal, 2) }}</td>
-
-                                {{-- FT IN --}}
-                                <td class="text-end text-white-50">${{ number_format($ftInVal, 2) }}</td>
-
-                                {{-- FT OUT --}}
-                                <td class="text-end text-white-50">${{ number_format($ftOutVal, 2) }}</td>
 
                                 {{-- BET --}}
                                 <td class="text-end text-white">${{ number_format($betVal, 2) }}</td>
@@ -519,7 +478,7 @@
 
                         @empty
                             <tr>
-                                <td colspan="20" class="text-center py-4 text-secondary">
+                                <td colspan="17" class="text-center py-4 text-secondary">
                                     No tabs configured yet. <a href="{{ route('tabs.create') }}" class="text-warning">Add your first Tab</a>.
                                 </td>
                             </tr>

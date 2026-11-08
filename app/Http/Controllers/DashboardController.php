@@ -37,12 +37,6 @@ class DashboardController extends Controller
         $totalBet      = (float) $statuses->sum('shift_total_bet');
         $totalWin      = (float) $statuses->sum('shift_total_win');
         $betWinDiff    = $totalBet - $totalWin;
-        $ftIn          = (float) $statuses->sum(fn($s) => $s->shift_total_in * 0.30);
-        $ftOut         = $totalOut;
-        $ftDiff        = $ftIn - $ftOut;
-        $billIn        = (float) $statuses->sum(fn($s) => $s->shift_total_in * 0.70);
-        $handPay       = 0.00;
-        $credits       = (float) $statuses->sum('current_balance');
         $machinesCount = $tabs->count();
         $activeCount   = $statuses->where('status', 'active')->count();
 
@@ -56,12 +50,6 @@ class DashboardController extends Controller
             'totalBet',
             'totalWin',
             'betWinDiff',
-            'ftIn',
-            'ftOut',
-            'ftDiff',
-            'billIn',
-            'handPay',
-            'credits',
             'machinesCount',
             'activeCount',
             'gameConfigs'

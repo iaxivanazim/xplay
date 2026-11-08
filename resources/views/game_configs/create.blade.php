@@ -56,7 +56,7 @@
                                 </div>
 
                                 <div class="col-md-6">
-                                    <label class="form-label text-secondary small">Device IP Address</label>
+                                    <label class="form-label text-secondary small">Table IP Address</label>
                                     <input type="text" name="device_ip" class="form-control bg-black text-white border-secondary"
                                         placeholder="e.g. 192.168.1.100" value="{{ old('device_ip') }}">
                                     <div class="form-text text-secondary" style="font-size:11px;">External device / station IP address</div>

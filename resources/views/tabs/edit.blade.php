@@ -14,14 +14,36 @@
             </a>
         </div>
 
+        {{-- Session Flash Notifications --}}
+        @if (session('success'))
+            <div class="alert alert-success alert-dismissible fade show border-0 mb-3" style="background:#0f2e1a; color:#6fcf97;">
+                <i class="bi bi-check-circle me-2"></i>{{ session('success') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if (session('error'))
+            <div class="alert alert-danger alert-dismissible fade show border-0 mb-3" style="background:#2e1010; color:#eb5757;">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ session('error') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if (session('warning'))
+            <div class="alert alert-warning alert-dismissible fade show border-0 mb-3" style="background:#2e240a; color:#f2c94c;">
+                <i class="bi bi-exclamation-circle me-2"></i>{{ session('warning') }}
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+
         {{-- Errors --}}
         @if ($errors->any())
-            <div class="alert alert-danger border-0 mb-4" style="background:#2e1010; color:#eb5757;">
+            <div class="alert alert-danger alert-dismissible fade show border-0 mb-4" style="background:#2e1010; color:#eb5757;">
+                <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i>Validation Error</div>
                 <ul class="mb-0 ps-3">
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
                     @endforeach
                 </ul>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
             </div>
         @endif
 
