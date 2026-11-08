@@ -21,11 +21,12 @@ In modern land-based casinos (e.g., Macau, Las Vegas, Singapore, Goa), Tab-based
 2. **Station Middleware**: Intercepts hardware signals (optical card readers, wheel sensors) and emits standard payload events to the central backend.
 3. **Virtual Tabs (`tab_id`)**: Player-facing tablets positioned throughout the casino floor or pit arena. Multiple tabs are tied to one central station. Players place digital bets on their screen using their loaded digital chips.
 4. **Cage-Centric Financial Flow**: Players do **not** transact cash or chips at the game station. All financial interactions happen at the **Cashier (Casino Cage)**:
-   - Cashier deposits funds onto a Tab (`BUYIN`).
-   - Cashier issues a unique session **OTP** to the player.
-   - Tab is unlocked for play.
-   - If player takes a break or terminal is unattended, the Tab is locked.
-   - When finished, player visits Cashier for final settlement (`CASHOUT`).
+   - Cashier deposits funds onto a Tab (`BUYIN`). The session is initialized with `otp = NULL`.
+   - Tab is unlocked and immediately ready for play.
+   - When the player locks the tab for the first time (Break Mode), a prompt appears on the tab screen prompting the player to set their own user-desired session OTP (passcode/PIN).
+   - Until the player generates this OTP, the OTP column remains strictly `NULL`.
+   - Once set, the player-chosen OTP protects the tab across breaks until the session is submitted back to the cage for settlement (`CASHOUT`), at which point the session completes and OTP resets to `NULL`.
+   - Cashier can also unlock remotely if a player forgets their chosen OTP.
 5. **Real-time Resulting Engine**: When station middleware announces the cards or wheel outcome, the server computes game logic, calculates winning positions according to configured payout rules, evaluates all active tab bets, credits tab balances, and streams the results in sub-second time.
 
 ---
@@ -65,7 +66,7 @@ flowchart TD
     end
 
     subgraph CashierPortal["Cashier / Cage Portal"]
-        Cashier["Cashier / Cage Officer"] -->|1. Enable/Disable Tab<br/>2. Add Chips (Buyin)<br/>3. Issue Session OTP<br/>4. Lock / Unlock Tab<br/>5. Cashout Settlement| BackendEngine
+        Cashier["Cashier / Cage Officer"] -->|1. Enable/Disable Tab<br/>2. Add Chips (Buyin)<br/>3. Lock / Unlock Tab (Override)<br/>4. Cashout Settlement| BackendEngine
     end
 
     subgraph Persistence["Storage & Fast Recovery"]
@@ -89,14 +90,14 @@ Replaces the old physical `Game Table Management` module.
   - `table_id` (Station binding — which live station/game this tab bets on)
   - `status` (`ENABLED`, `DISABLED`, `MAINTENANCE`)
   - `lock_status` (`LOCKED`, `UNLOCKED`)
-  - `current_session_otp` (Active session verification OTP)
+  - `current_otp` (Player-generated session OTP; `NULL` until set by player upon first lock)
   - `current_balance` (Real-time digital chip balance)
   - `ip_address` / `mac_address` / `device_uuid`
 - **Cashier Actions**:
   - **Enable / Disable Tab**: Admin/Cashier can take tab offline or make it available.
-  - **Lock / Unlock Tab**: Prevent tampering when player takes a short break or tab is vacant.
-  - **Add Chips (BUYIN)**: Cashier receives cash/chips at cage, inputs amount, system credits tab and generates player's session OTP.
-  - **CASHOUT**: Cashier ends session, redeems chips/cash to player, tab balance resets to zero, session closes.
+  - **Lock / Unlock Tab**: Remotely lock tab or override player OTP if player forgets PIN.
+  - **Add Chips (BUYIN)**: Cashier receives cash at cage, inputs amount, system credits tab session (OTP remains `null` until player sets it on first break).
+  - **CASHOUT**: Cashier ends session, redeems balance in cash to player, tab balance resets to zero, session closes and OTP is reset to `null`.
   - **Tab Configuration Settings**: Max bet, min bet, chip denomination presets selectable on tab.
 
 ### 4.2 Station Middleware & Outcome Calculation Engine
@@ -151,20 +152,65 @@ Replaces the old physical `Game Table Management` module.
 - No table float sessions or float balances are tracked.
 - Strict idempotency via `Idempotency-Key` header to prevent double buy-in or double cashout.
 
-### 4.4 Session Security & OTP Lifecycle
-- **Session Start (BUYIN)**:
-  - Cashier enters buyin amount.
-  - System generates a 4 to 6-digit numeric **Session OTP** (cryptographically random).
-  - Cashier hands OTP (or printed slip) to the player.
-  - Player enters OTP on the Tab to unlock and begin play.
-- **Session Continuity**:
-  - The OTP remains the active session token throughout play until Cashout.
-- **Lock / Unlock**:
-  - Tab can be locked by player ("Break Mode") or locked remotely by Cashier.
-  - Unlocking requires entering the valid Session OTP or Cashier override.
-- **Session End (CASHOUT)**:
-  - Cashout invalidates the OTP.
-  - Tab is locked and reset to `IDLE` state.
+### 4.4 Session Security & Player-Generated OTP Lifecycle
+
+> [!IMPORTANT]
+> **Mechanism Update (Discarded Cage Auto-Generation):**
+> Previously, the system generated an automated 6-digit OTP at the Cashier Cage during `BUYIN`. This mechanism has been **completely discarded**. Under the new architecture, the Cashier **never** creates or issues OTPs. Instead, the OTP is generated by the **player themselves** upon the **first time locking the tab** (entering Break Mode). Until the player enters their desired OTP, the OTP column in both `tab_sessions` and `tab_statuses` remains strictly `NULL`.
+
+#### Complete Lifecycle Flow:
+1. **Session Start (`BUYIN` at Cage):**
+   - Player hands cash to the Cashier. Cashier inputs the buyin amount into the dashboard.
+   - Cashier deposits funds onto the Tab. An active session is opened in `tab_sessions` and `tab_statuses`.
+   - **`otp` is set to `NULL`** (`tab_sessions.otp = NULL` and `tab_statuses.current_otp = NULL`).
+   - The Tab tablet is unlocked and ready for gameplay immediately without entering any cage passcode.
+   - Heartbeat response signals:
+     ```json
+     {
+       "otp_set": false,
+       "requires_otp_prompt": true,
+       "current_otp": null
+     }
+     ```
+
+2. **First Lock & Player Desired OTP Prompt (Break Mode):**
+   - When the player steps away from the terminal (e.g. for a restroom break, beverage, or phone call), they tap the **Lock** button on their tablet.
+   - Because `current_otp` is `NULL`, the tablet displays an interactive on-screen prompt:
+     > *"Please enter your desired 4-to-10 digit PIN/passcode to secure this session while you are away."*
+   - The tablet submits the player-chosen PIN via `POST /api/v1/tabs/{id}/lock` with body:
+     ```json
+     { "otp": "1234" }
+     ```
+     *(Alternatively, the dedicated endpoint `POST /api/v1/tabs/{id}/set-otp` can be invoked).*
+   - **Persistence:** Backend updates both `tab_sessions.otp` and `tab_statuses.current_otp`, writes the snapshot to `recovery_data.otp`, and changes `lock_status` to `'locked'`.
+   - **Validation Enforcement:** If a tablet attempts to lock an active session whose OTP has not yet been configured without passing an `otp`, the backend returns HTTP 422:
+     ```json
+     {
+       "success": false,
+       "code": "OTP_REQUIRED",
+       "requires_otp": true,
+       "message": "A session OTP must be generated by the player upon first time locking the tab."
+     }
+     ```
+
+3. **Unlocking from Break Mode:**
+   - When the player returns to the tablet, they tap Unlock and enter their player-generated PIN.
+   - Tablet sends `POST /api/v1/tabs/{id}/unlock` with `{"otp": "1234"}`.
+   - Backend compares entered PIN with `tab_statuses.current_otp`.
+     - **Match:** Tab is unlocked (`lock_status = 'unlocked'`). Player resumes play with intact credits.
+     - **Mismatch:** Backend returns HTTP 403 `{"code": "INVALID_OTP", "message": "Incorrect OTP. Please enter the valid session OTP."}`.
+   - **Cashier Emergency Override:** If a player forgets their PIN, the Cashier Cage can unlock remotely via the dashboard drawer modal or with `{"override": true}`.
+
+4. **Subsequent Locks during the Session:**
+   - If the player locks the tab again during the same session, they are **not** re-prompted to create a new PIN. The previously generated player OTP protects all subsequent lock cycles for that session.
+
+5. **Session End (`CASHOUT` at Cage):**
+   - When finished playing, the player returns the tablet to the Cashier Cage.
+   - Cashier clicks **Cashout** in the dashboard drawer modal.
+   - Cashier redeems remaining pure cash to the player.
+   - The active `tab_sessions` record is marked `status = 'completed'` and `closed_at = now()`.
+   - `tab_statuses.current_balance` is reset to `0.00` and `tab_statuses.current_otp` is reset to `NULL`.
+   - The tab returns to `IDLE` state, completely clean for the next player.
 
 ### 4.5 Fast Recovery: `tab_current_status` Table
 In high-volume casino operations, network interruptions, Wi-Fi drops, browser crashes, or tablet battery depletion can occur. The system must not rely on replaying ledger transactions to discover tab state.
@@ -308,10 +354,10 @@ The system is organized into three distinct, specialized modules as requested by
     - **Right Sidebar**: Opening Float (0.00), Float Balance (0.00), `Day & Shift` button, `View` button (toggles to `/tabs` list view), `Logout`, and solid red `Exit` button.
 - **Interactive Cashier Drawer Modal (Clicking any Tab):**
   1. **Tab Identity Banner:** Number, Name, IP, MAC, Online status, Lock status.
-  2. **Live Balance & OTP:** Displays real-time balance in pure cash (no chips) and large high-visibility active session OTP.
-  3. **Cashin (Buyin):** Cashier inputs amount and optional player credentials (Name, Phone, Member Card ID). Automatically generates a unique 6-digit session OTP, opens session in `tab_sessions`, sets balance in `tab_statuses`, and records `BUYIN` in `table_ledgers`.
-  4. **Cashout:** Shows redeemable balance, records `CASHOUT` in `table_ledgers`, closes session in `tab_sessions`, and resets tab balance to $0.00.
-  5. **Lock / Unlock:** One-click toggle between active play and Break Mode without losing the player's balance or OTP.
+  2. **Live Balance & OTP:** Displays real-time balance in pure cash (no chips) and active session OTP status (`Not Set (Prompt on 1st Lock)` until player creates PIN, or the active PIN).
+  3. **Cashin (Buyin):** Cashier inputs amount and optional player credentials (Name, Phone, Member Card ID). Opens session in `tab_sessions` with `otp = NULL`, sets balance in `tab_statuses`, and records `BUYIN` in `table_ledgers`. (Player will set desired OTP on first lock).
+  4. **Cashout:** Shows redeemable balance, records `CASHOUT` in `table_ledgers`, closes session in `tab_sessions`, zeroes tab balance, and resets OTP back to `NULL`.
+  5. **Lock / Unlock:** Cashier emergency lock / override toggle between active play and Break Mode without losing the player's balance or OTP.
   6. **Cashier Side Game Config Assignment:** Cashier can assign or switch the primary `game_config_id` directly from the drawer modal.
   7. **Disaster Recovery:** Displays the active recovery snapshot and allows instant push/sync to the physical tab hardware.
 
@@ -378,10 +424,12 @@ sequenceDiagram
   - [x] Built 7-column card grid in `resources/views/dashboard.blade.php` matching `WhatsApp Image 2026-09-15 at 5.26.20 PM.jpeg`.
   - [x] Configured KPI header strip (User, Period, Time, Total In, Total Out, Diff, Total Bet, Total Win, FT In, FT Out, Bill In, Credits, Machines, Active, Megapot, Tournament).
   - [x] Implemented interactive cashier drawer modal on tab card click.
-  - [x] Implemented Cage Cashin (Buyin) with automatic session OTP generation.
-  - [x] Implemented Cage Cashout with automatic session completion and zero-balance settlement.
-  - [x] Implemented Break Mode (Lock / Unlock tab) preserving player session and OTP.
+  - [x] Implemented Cage Cashin (Buyin) with player-generated OTP flow: session opens with `otp = NULL` and remains null until player sets it.
+  - [x] Implemented Break Mode with on-tablet prompt for player to generate desired session OTP on first lock, preserving session and OTP across breaks until cashout.
+  - [x] Implemented endpoints: `POST /api/v1/tabs/{id}/lock`, `POST /api/v1/tabs/{id}/unlock`, `POST /api/v1/tabs/{id}/set-otp`.
+  - [x] Implemented Cage Cashout with automatic session completion, zero-balance settlement, and OTP reset to null.
   - [x] Implemented cashier-side Game Config assignment and switching directly from dashboard.
+  - [x] Created automated test suite `tests/Feature/TabOtpLifecycleTest.php` (7 passed, 23 assertions, 100% passing).
 - [x] **Phase 6: Failure Management & Disaster Recovery**
   - [x] Created `tab_statuses` table storing live balances and JSON recovery snapshots.
   - [x] Built `TabApiController` with `POST /api/v1/tabs/{id}/restore` endpoint for crash recovery.
@@ -414,3 +462,5 @@ sequenceDiagram
   - [x] Created test suite [`RouletteResultingTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/RouletteResultingTest.php) (5 passed, 57 assertions, 100% passing).
 - [ ] **Phase 8: Kafka Real-Time Messaging Layer**
   - [ ] Deploy Kafka producers for station events, resulting, and cashier tab commands.
+
+*Update this document after every implementation.*

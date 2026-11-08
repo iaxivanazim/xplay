@@ -413,7 +413,7 @@
                                     <div class="col-12">
                                         <div class="alert alert-dark border-secondary small text-secondary mb-2">
                                             <i class="bi bi-shield-check text-success me-1"></i>
-                                            Transacted directly through Cage ledger as pure cash. An OTP will be generated and persisted for this session until Cashout.
+                                            Transacted directly through Cage ledger as pure cash. Player will set their desired session OTP upon first locking the tab (Break Mode).
                                         </div>
                                         <button type="submit" class="btn btn-success fw-bold px-4 py-2">
                                             <i class="bi bi-check-lg me-1"></i>Process Cashin &amp; Start Session
@@ -570,7 +570,7 @@
                     }
 
                     // OTP
-                    document.getElementById('drawer_otp').innerText = s.current_otp || '------';
+                    document.getElementById('drawer_otp').innerText = s.current_otp ? s.current_otp : (bal > 0 ? 'Not Set (1st Lock)' : '------');
                     document.getElementById('drawer_active_config').innerText = `Config: ${t.game_config_name || 'None'}`;
 
                     // Config selector

@@ -31,6 +31,9 @@ Route::prefix('v1')->group(function () {
     Route::get('/tabs/{id}/status',            [TabApiController::class, 'status'])->whereNumber('id');
     Route::post('/tabs/{id}/restore',          [TabApiController::class, 'restore'])->whereNumber('id'); // Failure recovery
     Route::match(['get', 'post'], '/tabs/{id}/heartbeat', [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::post('/tabs/{id}/lock',             [TabApiController::class, 'lock'])->whereNumber('id');
+    Route::post('/tabs/{id}/unlock',           [TabApiController::class, 'unlock'])->whereNumber('id');
+    Route::post('/tabs/{id}/set-otp',          [TabApiController::class, 'setOtp'])->whereNumber('id');
     Route::post('/tabs/{id}/win',              [TabApiController::class, 'recordWin'])->whereNumber('id');
     Route::post('/tabs/{id}/loss',             [TabApiController::class, 'recordLoss'])->whereNumber('id');
     Route::post('/tabs/{id}/game-result',      [TabApiController::class, 'recordGameResult'])->whereNumber('id');
@@ -114,6 +117,9 @@ Route::prefix('tabs')->group(function () {
     Route::get('/{id}/status',        [TabApiController::class, 'status'])->whereNumber('id');
     Route::post('/{id}/restore',      [TabApiController::class, 'restore'])->whereNumber('id');
     Route::match(['get', 'post'], '/{id}/heartbeat', [TabApiController::class, 'heartbeat'])->whereNumber('id');
+    Route::post('/{id}/lock',         [TabApiController::class, 'lock'])->whereNumber('id');
+    Route::post('/{id}/unlock',       [TabApiController::class, 'unlock'])->whereNumber('id');
+    Route::post('/{id}/set-otp',      [TabApiController::class, 'setOtp'])->whereNumber('id');
     Route::post('/{id}/win',          [TabApiController::class, 'recordWin'])->whereNumber('id');
     Route::post('/{id}/loss',         [TabApiController::class, 'recordLoss'])->whereNumber('id');
     Route::post('/{id}/game-result',  [TabApiController::class, 'recordGameResult'])->whereNumber('id');

@@ -454,7 +454,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="small text-secondary fst-italic">
-                                                    <i class="bi bi-shield-check me-1"></i>A unique OTP will be generated for this session and maintained until cashout.
+                                                    <i class="bi bi-shield-check me-1"></i>Player will generate their desired session OTP upon first locking the tab (Break Mode).
                                                 </div>
                                             </div>
                                             <div class="modal-footer border-secondary">
@@ -494,6 +494,10 @@
                                                 @if($status?->current_otp)
                                                     <div class="text-secondary small">
                                                         Active OTP: <strong class="text-info font-monospace">{{ $status->current_otp }}</strong>
+                                                    </div>
+                                                @elseif($status && (float)$status->current_balance > 0)
+                                                    <div class="text-secondary small">
+                                                        Active OTP: <span class="badge bg-secondary">Not Set (Prompt on 1st Lock)</span>
                                                     </div>
                                                 @endif
                                                 <div class="alert alert-warning border-0 small mt-3 text-start" style="background:#2a200a; color:#fbbf24;">

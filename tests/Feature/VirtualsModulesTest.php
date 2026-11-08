@@ -55,10 +55,14 @@ class VirtualsModulesTest extends TestCase
         $response->assertSee('Standard European Roulette');
     }
 
-    public function test_cashier_can_cashin_and_generate_otp()
+    public function test_cashier_can_cashin_with_otp_null_until_player_lock()
     {
         $admin = $this->getAdmin();
         $tab = Tab::first();
+
+        // Ensure tab starts with clean session
+        \App\Models\TabSession::where('tab_id', $tab->id)->where('status', 'active')->update(['status' => 'completed']);
+        TabStatus::where('tab_id', $tab->id)->update(['current_otp' => null, 'current_balance' => 0.00]);
 
         $response = $this->actingAs($admin)->post("/dashboard/tab/{$tab->id}/cashin", [
             'amount'         => 150.00,
@@ -71,7 +75,7 @@ class VirtualsModulesTest extends TestCase
 
         $status = TabStatus::where('tab_id', $tab->id)->first();
         $this->assertNotNull($status);
-        $this->assertNotNull($status->current_otp);
+        $this->assertNull($status->current_otp);
         $this->assertGreaterThanOrEqual(150.00, (float)$status->current_balance);
         $this->assertEquals('Test High Roller', $status->player_name);
 
