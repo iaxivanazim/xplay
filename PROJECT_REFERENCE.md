@@ -423,6 +423,8 @@ sequenceDiagram
   - [x] Implemented bulk tab creation (`tabs.bulk_create` / `tabs.bulk_store`) with multi-layer duplicate MAC address validation (client-side interactive warnings, server batch uniqueness, database uniqueness with conflict details, and SQL exception catching with dismissible UI alerts).
 - [x] **Phase 5: Module 3 (`Dashboard` - Cashier Cage) Implementation**
   - [x] Built 7-column card grid in `resources/views/dashboard.blade.php` matching `WhatsApp Image 2026-09-15 at 5.26.20 PM.jpeg`.
+  - [x] Tab card live session details: for active tabs with an active session, displays Player Name, Current Bet, and Current Win directly above the Tab Name.
+  - [x] Dynamic tab border status color mapping: Red (`#ef4444`) for occupied/in-use (`F = 'N'`), Golden Amber (`#f59e0b`) for locked/break mode, Emerald Green (`#10b981`) for free/idle (`F = 'Y'`), and Slate (`#334155`) for disabled.
   - [x] Configured KPI header strip (User, Period, Time, Total In, Total Out, Diff, Total Bet, Total Win, Total Diff, Machines, Active). Legacy physical slot elements (FT In/Out, Bill In, Jackpots) pruned.
   - [x] Implemented interactive cashier drawer modal on tab card click.
   - [x] Implemented Cage Cashin (Buyin) with player-generated OTP flow: session opens with `otp = NULL` and remains null until player sets it.

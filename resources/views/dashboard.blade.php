@@ -90,7 +90,7 @@
         .tab-card {
             background: #111f30;
             border-radius: 8px;
-            padding: 12px 6px;
+            padding: 10px 6px;
             text-align: center;
             cursor: pointer;
             transition: all 0.18s ease-in-out;
@@ -98,7 +98,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            min-height: 104px;
+            min-height: 118px;
             user-select: none;
             box-sizing: border-box;
             min-width: 0;
@@ -112,14 +112,16 @@
 
         /* Status Borders */
         .tab-card.border-idle {
-            border: 2px solid #10b981; /* Emerald Green */
+            border: 2px solid #10b981; /* Emerald Green - Free (F = 'Y') */
         }
-        .tab-card.border-active {
-            border: 2px solid #f59e0b; /* Golden Amber */
-            box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+        .tab-card.border-active,
+        .tab-card.border-not-free {
+            border: 2px solid #ef4444; /* Red - Occupied / In-use (F = 'N') */
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.45);
         }
         .tab-card.border-locked {
-            border: 2px solid #ef4444; /* Red */
+            border: 2px solid #f59e0b; /* Golden Amber - Locked (Break Mode) */
+            box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
         }
         .tab-card.border-disabled {
             border: 2px solid #334155; /* Slate */
@@ -128,10 +130,45 @@
 
         /* Card Content */
         .tab-card-num {
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 800;
             color: #ffffff;
             line-height: 1.1;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+        .tab-card-session {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2px;
+            min-width: 0;
+            max-width: 100%;
+        }
+        .tab-card-player {
+            font-size: 11px;
+            font-weight: 700;
+            color: #38bdf8;
+            line-height: 1.2;
+            margin-bottom: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+            display: block;
+        }
+        .tab-card-metrics {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            font-family: monospace;
+            line-height: 1.2;
             margin-bottom: 2px;
             white-space: nowrap;
             overflow: hidden;
@@ -143,7 +180,7 @@
             color: #94a3b8;
             font-weight: 500;
             letter-spacing: 0.02em;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -161,7 +198,9 @@
             text-overflow: ellipsis;
             max-width: 100%;
         }
-        .tab-card.border-active .tab-card-balance {
+        .tab-card.border-active .tab-card-balance,
+        .tab-card.border-not-free .tab-card-balance,
+        .tab-card.border-locked .tab-card-balance {
             color: #fbbf24;
         }
 
@@ -282,24 +321,60 @@
                     @forelse($tabs as $tab)
                         @php
                             $status = $tab->statusRecord;
+                            $session = $tab->currentSession;
                             $balance = $status ? (float)$status->current_balance : 0.00;
                             $hasBalance = ($balance > 0);
                             $isLocked = ($tab->lock_status === 'locked' || $tab->lock_status === 'break');
                             $isDisabled = ($tab->status == 0);
 
-                            // Determine border class
+                            // F column status: 'Y' when free/idle (no balance/no player), 'N' when occupied/in-use
+                            $isFree = (!$status || $status->status === 'idle' || $balance == 0);
+                            $isNotFree = !$isFree; // Value is 'N' for 'F' column
+
+                            // Active tab and active session check:
+                            $isActiveTab = ($tab->status == 1);
+                            $hasActiveSession = $isActiveTab && (
+                                ($session && $session->status === 'active') ||
+                                ($status && $status->status === 'active') ||
+                                $isNotFree
+                            );
+
+                            $playerName = $session?->player_name ?: ($status?->player_name ?: null);
+                            $currentBet = $status ? (float)($status->last_bet_amount ?? $status->shift_last_bet ?? 0.00) : 0.00;
+                            $currentWin = $status ? (float)($status->last_win_amount ?? 0.00) : 0.00;
+
+                            // Determine border class:
+                            // Disabled -> Slate; Locked -> Golden Amber; 'N' for 'F' column -> Red; Free -> Emerald Green
                             $borderClass = 'border-idle';
                             if ($isDisabled) {
                                 $borderClass = 'border-disabled';
                             } elseif ($isLocked) {
                                 $borderClass = 'border-locked';
-                            } elseif ($hasBalance) {
-                                $borderClass = 'border-active';
+                            } elseif ($isNotFree) {
+                                $borderClass = 'border-not-free';
                             }
                         @endphp
 
-                        <div class="tab-card {{ $borderClass }}" onclick="openTabDrawer({{ $tab->id }})" title="Click to manage Tab #{{ $tab->tab_number }}">
-                            <div class="tab-card-num">{{ $tab->tab_number }}</div>
+                        <div class="tab-card {{ $borderClass }}" onclick="openTabDrawer({{ $tab->id }})" title="Click to manage Tab #{{ $tab->tab_number }}{{ $playerName ? ' | Player: ' . $playerName : '' }}">
+                            <div class="tab-card-num">
+                                {{ $tab->tab_number }}
+                                @if($isLocked)
+                                    <i class="bi bi-lock-fill text-warning ms-1" style="font-size:13px;" title="{{ $tab->lock_status === 'break' ? 'Break Mode (Locked)' : 'Locked' }}"></i>
+                                @endif
+                            </div>
+
+                            @if($hasActiveSession)
+                                <div class="tab-card-session">
+                                    <div class="tab-card-player" title="Player: {{ $playerName ?? 'Player-' . $tab->tab_number }}">
+                                        <i class="bi bi-person-fill text-info me-1" style="font-size:10px;"></i>{{ Str::limit($playerName ?? 'Player-' . $tab->tab_number, 14) }}
+                                    </div>
+                                    <div class="tab-card-metrics" title="Current Bet: ${{ number_format($currentBet, 2) }} | Current Win: ${{ number_format($currentWin, 2) }}">
+                                        <span><span class="text-white-50">Bet:</span> <strong class="text-info">${{ number_format($currentBet, 2) }}</strong></span>
+                                        <span><span class="text-white-50">Win:</span> <strong class="{{ $currentWin > 0 ? 'text-success' : 'text-white-50' }}">${{ number_format($currentWin, 2) }}</strong></span>
+                                    </div>
+                                </div>
+                            @endif
+
                             <div class="tab-card-name">{{ $tab->table_name }}</div>
                             <div class="tab-card-balance">${{ number_format($balance, 2) }}</div>
                         </div>
@@ -579,7 +654,7 @@
                         document.getElementById('current_lock_label').innerText = 'UNLOCKED';
                         document.getElementById('toggleLockBtn').innerHTML = '<i class="bi bi-lock me-1"></i>Lock Tab (Break Mode)';
                     } else {
-                        lockBadge.className = 'badge bg-danger';
+                        lockBadge.className = 'badge bg-warning text-dark';
                         lockBadge.innerText = t.lock_status.toUpperCase();
                         document.getElementById('current_lock_label').innerText = t.lock_status.toUpperCase();
                         document.getElementById('toggleLockBtn').innerHTML = '<i class="bi bi-unlock me-1"></i>Unlock Tab';

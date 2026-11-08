@@ -116,7 +116,6 @@
     <div class="cage-header-bar mb-3 rounded-2">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div class="d-flex align-items-center gap-2">
-                <span class="badge rounded-circle p-2 bg-primary text-white fw-bold" style="font-size:10px;">STA</span>
                 <div>
                     <div>User: <strong class="text-white">{{ auth()->user()->name ?? 'Cashier' }}</strong></div>
                     <div>Period: <span class="text-white-50">{{ now()->format('d-m-Y') }}</span></div>

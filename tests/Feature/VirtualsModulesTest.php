@@ -52,6 +52,17 @@ class VirtualsModulesTest extends TestCase
     {
         $admin = $this->getAdmin();
 
+        $gameType = \App\Models\GameType::first() ?? \App\Models\GameType::create(['name' => 'Roulette', 'code' => 'ROL', 'status' => 1]);
+        \App\Models\GameConfig::firstOrCreate(
+            ['name' => 'Standard European Roulette'],
+            [
+                'game_type_id' => $gameType->id,
+                'min_bet'      => '10|25',
+                'max_bet'      => '500|1000',
+                'is_active'    => 1,
+            ]
+        );
+
         $response = $this->actingAs($admin)->get('/game_configs');
 
         $response->assertStatus(200);
@@ -189,5 +200,45 @@ class VirtualsModulesTest extends TestCase
             'message',
             'errors',
         ]);
+    }
+
+    public function test_dashboard_displays_player_bet_win_and_custom_border_colors()
+    {
+        $admin = $this->getAdmin();
+        $tab = Tab::first();
+
+        // 1. Tab with active session and balance > 0 (F = 'N')
+        $tab->update(['status' => 1, 'lock_status' => 'unlocked']);
+        $tab->statusRecord->update([
+            'status'          => 'active',
+            'current_balance' => 150.00,
+            'player_name'     => 'Alice Highroller',
+            'last_bet_amount' => 25.00,
+            'last_win_amount' => 50.00,
+        ]);
+
+        $response = $this->actingAs($admin)->get('/dashboard');
+        $response->assertStatus(200);
+        $response->assertSee('Alice Highroll'); // truncated limit 14
+        $response->assertSee('25.00');
+        $response->assertSee('50.00');
+        $response->assertSee('border-not-free');
+
+        // 2. Tab locked (Break mode) -> should have border-locked
+        $tab->update(['lock_status' => 'locked']);
+        $responseLocked = $this->actingAs($admin)->get('/dashboard');
+        $responseLocked->assertStatus(200);
+        $responseLocked->assertSee('border-locked');
+
+        // 3. Tab idle and free (F = 'Y') -> should have border-idle
+        $tab->update(['lock_status' => 'unlocked']);
+        $tab->statusRecord->update([
+            'status'          => 'idle',
+            'current_balance' => 0.00,
+            'player_name'     => null,
+        ]);
+        $responseIdle = $this->actingAs($admin)->get('/dashboard');
+        $responseIdle->assertStatus(200);
+        $responseIdle->assertSee('border-idle');
     }
 }
