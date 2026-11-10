@@ -88,6 +88,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/station/{tableId}/roulette/result', [StationResultController::class, 'receiveRouletteResult']);
     Route::post('/tabs/{id}/bet',                      [StationResultController::class, 'placeBet'])->whereNumber('id');
     Route::post('/roulette/settle',                   [StationResultController::class, 'settle']);
+    Route::match(['post', 'put'], '/station/{tableId}/telemetry', [StationResultController::class, 'syncTelemetry']);
+    Route::match(['post', 'put'], '/station/telemetry',            [StationResultController::class, 'syncTelemetry']);
+    Route::match(['post', 'put'], '/station/tabs/telemetry',       [StationResultController::class, 'syncTelemetry']);
 
     // ── Game Configuration & Device IP API Endpoints ────────────────────────
     Route::get('/game-configs',                        [GameConfigApiController::class, 'index']);
@@ -136,6 +139,13 @@ Route::prefix('game-configs')->group(function () {
     Route::put('/{id}/device-ip',      [GameConfigApiController::class, 'updateDeviceIp'])->whereNumber('id');
     Route::post('/device-ip',          [GameConfigApiController::class, 'updateDeviceIp']);
     Route::put('/device-ip',           [GameConfigApiController::class, 'updateDeviceIp']);
+});
+
+// Backward-compatible non-v1 aliases for Station telemetry (/api/station/...)
+Route::prefix('station')->group(function () {
+    Route::match(['post', 'put'], '/{tableId}/telemetry', [StationResultController::class, 'syncTelemetry']);
+    Route::match(['post', 'put'], '/telemetry',            [StationResultController::class, 'syncTelemetry']);
+    Route::match(['post', 'put'], '/tabs/telemetry',       [StationResultController::class, 'syncTelemetry']);
 });
 
 // https://documenter.getpostman.com/view/31035377/2sBXcEmMLA

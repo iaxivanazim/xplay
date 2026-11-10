@@ -18,6 +18,9 @@ class TabController extends Controller
 {
     public function index(Request $request)
     {
+        // Automatically synchronize connection_status for tabs whose heartbeats or hardware registration have lapsed
+        Tab::syncStaleConnections();
+
         $query = Tab::with([
             'gameConfig.gameType',
             'gameConfigs.gameType',
@@ -266,10 +269,10 @@ class TabController extends Controller
                         'denomination'      => $denomination,
                         'status'            => $status,
                         'lock_status'       => $lockStatus,
-                        'connection_status' => 'online',
+                        'connection_status' => 'offline',
                         'float'             => 0.00,
                         'bet_index'         => 1,
-                        'last_seen_at'      => now(),
+                        'last_seen_at'      => null,
                     ]);
 
                     // Register primary game config in pivot
@@ -284,7 +287,7 @@ class TabController extends Controller
                     // Create initial TabStatus for failure restoration
                     TabStatus::create([
                         'tab_id'            => $tab->id,
-                        'status'            => 'idle',
+                        'status'            => ($status ? 'idle' : 'disabled'),
                         'lock_status'       => $tab->lock_status,
                         'current_balance'   => 0.00,
                         'session_buyin'     => 0.00,
@@ -295,9 +298,9 @@ class TabController extends Controller
                         'shift_total_win'   => 0.00,
                         'shift_games_count' => 0,
                         'shift_last_bet'    => 0.00,
-                        'connection_status' => 'online',
+                        'connection_status' => 'offline',
                         'active_mac'        => $tab->active_mac,
-                        'last_synced_at'    => now(),
+                        'last_synced_at'    => null,
                         'recovery_data'     => [
                             'tab_id'    => $tab->id,
                             'tab_name'  => $tab->table_name,
@@ -427,10 +430,10 @@ class TabController extends Controller
                     'denomination'      => $request->denomination,
                     'status'            => $request->boolean('status', true),
                     'lock_status'       => $request->lock_status ?? 'unlocked',
-                    'connection_status' => 'online',
+                    'connection_status' => 'offline',
                     'float'             => 0.00,
                     'bet_index'         => 1,
-                    'last_seen_at'      => now(),
+                    'last_seen_at'      => null,
                 ]);
 
                 // Sync assigned game configs (including the primary one)
@@ -453,7 +456,7 @@ class TabController extends Controller
                 // Create initial TabStatus for failure management
                 TabStatus::create([
                     'tab_id'            => $tab->id,
-                    'status'            => 'idle',
+                    'status'            => $request->boolean('status', true) ? 'idle' : 'disabled',
                     'lock_status'       => $tab->lock_status,
                     'current_balance'   => 0.00,
                     'session_buyin'     => 0.00,
@@ -464,9 +467,9 @@ class TabController extends Controller
                     'shift_total_win'   => 0.00,
                     'shift_games_count' => 0,
                     'shift_last_bet'    => 0.00,
-                    'connection_status' => 'online',
+                    'connection_status' => 'offline',
                     'active_mac'        => $tab->active_mac,
-                    'last_synced_at'    => now(),
+                    'last_synced_at'    => null,
                     'recovery_data'     => [
                         'tab_id'    => $tab->id,
                         'tab_name'  => $tab->table_name,
@@ -536,16 +539,27 @@ class TabController extends Controller
             DB::transaction(function () use ($request, $tab) {
                 $primaryConfig = GameConfig::findOrFail($request->game_config_id);
 
+                // 'E' state: false when checkbox is unchecked, true when checked
+                $newStatus = $request->boolean('status');
+
+                // 'A' state: must have both IP and MAC registered AND active heartbeat within threshold
+                $hasHardware = !empty($request->ip_address) && !empty($request->active_mac);
+                $isOnline = $hasHardware
+                    && $tab->last_seen_at
+                    && $tab->last_seen_at->gte(now()->subSeconds(Tab::HEARTBEAT_TIMEOUT_SECONDS));
+                $connStatus = $isOnline ? 'online' : 'offline';
+
                 $tab->update([
-                    'tab_number'     => $request->tab_number,
-                    'table_name'     => $request->table_name,
-                    'game_type_id'   => $primaryConfig->game_type_id,
-                    'game_config_id' => $primaryConfig->id,
-                    'ip_address'     => $request->ip_address,
-                    'active_mac'     => $request->active_mac,
-                    'denomination'   => $request->denomination,
-                    'status'         => $request->boolean('status', true),
-                    'lock_status'    => $request->lock_status ?? $tab->lock_status,
+                    'tab_number'        => $request->tab_number,
+                    'table_name'        => $request->table_name,
+                    'game_type_id'      => $primaryConfig->game_type_id,
+                    'game_config_id'    => $primaryConfig->id,
+                    'ip_address'        => $request->ip_address,
+                    'active_mac'        => $request->active_mac,
+                    'denomination'      => $request->denomination,
+                    'status'            => $newStatus,
+                    'lock_status'       => $request->lock_status ?? $tab->lock_status,
+                    'connection_status' => $connStatus,
                 ]);
 
                 // Sync assigned game configs
@@ -566,12 +580,19 @@ class TabController extends Controller
                     ]);
                 }
 
-                // Sync lock_status to TabStatus
+                // Sync status, lock_status, and connection_status to TabStatus
                 if ($tab->statusRecord) {
-                    $tab->statusRecord->update([
-                        'lock_status' => $tab->lock_status,
-                        'active_mac'  => $tab->active_mac,
-                    ]);
+                    $statusRecordUpdates = [
+                        'lock_status'       => $tab->lock_status,
+                        'active_mac'        => $tab->active_mac,
+                        'connection_status' => $connStatus,
+                    ];
+                    if (!$newStatus) {
+                        $statusRecordUpdates['status'] = 'disabled';
+                    } elseif ($tab->statusRecord->status === 'disabled') {
+                        $statusRecordUpdates['status'] = ((float)$tab->statusRecord->current_balance > 0) ? 'active' : 'idle';
+                    }
+                    $tab->statusRecord->update($statusRecordUpdates);
                 }
             });
         } catch (\Illuminate\Database\QueryException $e) {
@@ -666,13 +687,19 @@ class TabController extends Controller
     public function unregisterMac(Tab $tab)
     {
         $old = $tab->active_mac;
-        $tab->update(['active_mac' => null]);
+        $tab->update([
+            'active_mac'        => null,
+            'connection_status' => 'offline',
+        ]);
         if ($tab->statusRecord) {
-            $tab->statusRecord->update(['active_mac' => null]);
+            $tab->statusRecord->update([
+                'active_mac'        => null,
+                'connection_status' => 'offline',
+            ]);
         }
 
         return redirect()->back()
-            ->with('success', "MAC address ({$old}) unregistered from Tab '{$tab->table_name}'.");
+            ->with('success', "MAC address ({$old}) unregistered from Tab '{$tab->table_name}'. Tab marked offline.");
     }
 
     public function assignConfigs(Request $request, Tab $tab)

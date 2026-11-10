@@ -157,6 +157,7 @@
                         </div>
                         <div class="card-body p-4">
                             <div class="form-check form-switch mb-3">
+                                <input type="hidden" name="status" value="0">
                                 <input class="form-check-input" type="checkbox" name="status" value="1" id="tab_status" {{ old('status', $tab->status) ? 'checked' : '' }}>
                                 <label class="form-check-label text-white" for="tab_status">
                                     Tab Enabled
@@ -169,7 +170,7 @@
                                     <div class="text-secondary small">Current Balance: <strong class="text-white">${{ number_format($tab->statusRecord->current_balance, 2) }}</strong></div>
                                     <div class="text-secondary small">Active OTP: <strong class="text-info">{{ $tab->statusRecord->current_otp ?? 'None' }}</strong></div>
                                     <div class="text-secondary small">Player: <strong class="text-white">{{ $tab->statusRecord->player_name ?? 'None' }}</strong></div>
-                                    <div class="text-secondary small">Connection: <strong class="text-success">{{ $tab->statusRecord->connection_status }}</strong></div>
+                                    <div class="text-secondary small">Connection: <strong class="{{ $tab->isOnline() ? 'text-success' : 'text-danger' }}">{{ $tab->isOnline() ? 'online' : 'offline' }}</strong></div>
                                     <div class="text-secondary small">Last Sync: <span class="text-white-50">{{ $tab->statusRecord->last_synced_at?->diffForHumans() ?? 'Never' }}</span></div>
                                 </div>
                             @endif

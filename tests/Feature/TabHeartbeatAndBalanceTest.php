@@ -26,11 +26,23 @@ class TabHeartbeatAndBalanceTest extends TestCase
             'status'            => 1,
             'lock_status'       => 'unlocked',
             'connection_status' => 'online',
+            'ip_address'        => '192.168.1.101',
+            'active_mac'        => '00:E0:4C:68:00:01',
+        ]);
+
+        $this->testTab->update([
+            'lock_status'       => 'unlocked',
+            'status'            => 1,
+            'ip_address'        => '192.168.1.101',
+            'active_mac'        => '00:E0:4C:68:00:01',
+            'connection_status' => 'online',
         ]);
 
         // Ensure status record exists with 0 balance
         $status = TabStatus::firstOrCreate(['tab_id' => $this->testTab->id]);
         $status->update([
+            'lock_status'          => 'unlocked',
+            'current_otp'          => null,
             'current_balance'      => 0.00,
             'balance_version'      => 1,
             'last_op_type'         => null,

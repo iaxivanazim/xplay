@@ -466,4 +466,172 @@ sequenceDiagram
 - [ ] **Phase 8: Kafka Real-Time Messaging Layer**
   - [ ] Deploy Kafka producers for station events, resulting, and cashier tab commands.
 
+**
+In the XPLAY ETG / Tab-Based Casino Gaming System, 'U', 'E', 'F', and 'A' represent the four core status columns displayed in the Tab
+  Management Table (index.blade.php:228-234). They also directly dictate the visual border states on the Cashier Cage Dashboard
+  (dashboard.blade.php:347-354).
+
+  ### Quick Reference
+   State │ Column Title        │ Full Name                 │             UI Values              │ Underlying Model Fields
+  ───────┼─────────────────────┼───────────────────────────┼────────────────────────────────────┼──────────────────────────────────────────
+     U   │ Unlock / Lock       │ Unlock State              │       U (Unlocked)L (Locked)       │ tabs.lock_status,
+         │ status              │                           │                                    │ tab_statuses.lock_status
+     E   │ Enabled             │ Operational Enablement    │ Y (Yes / Enabled)N (No / Disabled) │ tabs.status, tab_statuses.status
+     F   │ Free / Occupied     │ Occupancy / Credit State  │  Y (Yes / Free)N (No / Occupied)   │ tab_statuses.current_balance,
+         │                     │                           │                                    │ tab_statuses.status
+     A   │ Active / Online     │ Network / Hardware Online │  Y (Yes / Online)N (No / Offline)  │ tabs.connection_status,
+         │                     │                           │                                    │ tab_statuses.connection_status
+  ──────
+  ### 1. State 'U' — Unlock / Lock Status
+  Indicates whether the tablet terminal is currently accessible for wagering or locked in Break Mode while a patron steps away.
+  • UI Display:
+      • U (Green badge): Unlocked — ready for immediate gameplay.
+      • L (Red badge): Locked — screen is secured by a player PIN or cashier lock.
+  • When and How it is SET to Locked ('L'):
+      • Player Break Mode: When the player steps away and taps Lock on the tablet screen (POST /api/v1/tabs/{id}/lock handled by
+      TabApiController::lock()). On first lock of a session, the player enters a 4–10 digit PIN which is persisted to tab_sessions.otp and
+      tab_statuses.current_otp.
+      • Cashier Remote Lock: Cashier clicks Lock in the Drawer Modal (POST /dashboard/tab/{id}/toggle-lock via
+      DashboardController::toggleLock()) or in the tab list view (TabController::toggleLock()).
+      • Tab Administration: An admin manually sets lock_status = 'locked' during tab creation or editing.
+  • When and How it is UNSET to Unlocked ('U'):
+      • Player PIN Unlock: Player returns and submits their session PIN on the tablet (POST /api/v1/tabs/{id}/unlock handled by
+      TabApiController::unlock()).
+      • Cashier Remote Override: If a player forgets their PIN, the Cashier unlocks the tab from the dashboard drawer with override = true
+      (DashboardController::toggleLock()).
+      • Session Lifecycle Events:
+          • BUYIN: Starting a session via DashboardController::cashin() initializes the tab in unlocked state.
+          • CASHOUT: Redeeming chips and clearing the tab resets lock_status back to unlocked (TabBalanceService).
+
+
+  ──────
+  ### 2. State 'E' — Enabled / Disabled Status
+
+  Represents the administrative availability of the tablet hardware in the casino pit.
+
+  • UI Display:
+      • Y (Green text): Enabled — active machine eligible for floor use.
+      • N (Red text): Disabled — taken out of service (maintenance, defect, floor rearrangement).
+  • When and How it is SET to Enabled ('Y'):
+      • Tab Provisioning: Newly created single tabs or bulk batches default to status = 1 (TabController::store() and
+      TabController::bulkStore()).
+      • Admin Enable / Restore: Admin clicks Enable on a tab (POST /tabs/{tab}/restore handled by TabController::restore()), which updates
+      tabs.status = 1 and resets tab_statuses.status = 'idle'.
+      • Tab Edit: Admin checks the "Tab Enabled" switch in TabController::update() ($request->boolean('status')), which saves tabs.status = 1
+      and restores tab_statuses.status to 'idle' (or 'active' if balance > 0).
+  • When and How it is UNSET to Disabled ('N'):
+      • Admin Deactivate: Admin clicks Disable (POST /tabs/{tab}/deactivate handled by TabController::deactivate()), which updates tabs.
+      status = 0 and sets tab_statuses.status = 'disabled'.
+      • Tab Edit: Admin unchecks the "Tab Enabled" switch in TabController::update(). A hidden fallback input ensures status = 0 is sent,
+      updating tabs.status = 0 and setting tab_statuses.status = 'disabled'.
+      • In the Cashier Dashboard, disabled tabs show a muted slate border (.border-disabled) with 60% opacity.
+  ──────
+  ### 3. State 'F' — Free / Occupied Status
+  Indicates whether a terminal is vacant and available for a new patron, or currently occupied by an active player with credits loaded.
+
+  • Evaluation Logic (index.blade.php:254):
+    $isFree = (!$status || $status->status === 'idle' || $status->current_balance == 0);
+
+  • UI Display:
+      • Y (Green text): Free / Idle — no patron is playing; credits are 0.00; ready for buy-in.
+      • N (Red text): Occupied / In-use — a customer session is active and holding a credit balance (current_balance > 0).
+  • When and How it is UNSET from Free to Occupied (F = 'N'):
+      • Cashier BUYIN (Cashin): When a player deposits cash at the cage, the Cashier submits DashboardController::cashin() or
+      TabController::cashin().
+          • Opens an active TabSession (status = 'active').
+          • Sets tab_statuses.current_balance = amount and tab_statuses.status = 'active'.
+          • Because current_balance > 0, $isFree becomes false (F = 'N').
+      • On the dashboard, occupied tabs turn Glowing Red (border-not-free).
+  • When and How it is SET back to Free (F = 'Y'):
+      • Cashier CASHOUT: When the player finishes playing and redeems their funds via DashboardController::cashout() or
+      TabController::cashout().
+          • Closes the active TabSession (status = 'completed').
+          • Sets tab_statuses.current_balance = 0.00, clears current_otp = null, and resets tab_statuses.status = 'idle'.
+          • $isFree evaluates to true (F = 'Y').
+      • On the dashboard, free tabs turn Emerald Green (border-idle).
+  ──────
+  ### 4. State 'A' — Active / Online Status
+  Represents physical device telemetry and network connectivity over the casino Wi-Fi/LAN.
+
+  • Evaluation Logic (Tab::isOnline()):
+    $isOnline = !empty($tab->ip_address) && !empty($tab->active_mac) && $tab->connection_status === 'online' && $tab->last_seen_at && $tab->last_seen_at->gte(now()->subSeconds(90));
+
+  • UI Display:
+      • Y (Green text): Online / Active — tablet is bound to hardware (IP + MAC registered) AND actively reporting periodic heartbeats.
+      • N (Red text): Offline / Disconnected — tablet has lost power, Wi-Fi dropped, timed out (>90s), or lacks hardware registration.
+  • When and How it is SET to Online ('Y'):
+      • Heartbeat Ping: The tablet client continuously pings POST|GET /api/v1/tabs/{id}/heartbeat (TabApiController::heartbeat()). If the tab
+      is registered with IP and MAC, each ping updates:
+        $tab->update(['connection_status' => 'online', 'last_seen_at' => now()]);
+      • Hardware MAC Binding: Upon tablet boot, it registers its MAC address via POST /api/v1/tabs/{id}/register-mac
+      (TabApiController::registerMac()), which binds active_mac and ip_address and sets connection_status = 'online' and last_seen_at = now().
+      • Failure Recovery / Reboot: After a browser refresh or tablet restart, calling POST /api/v1/tabs/{id}/restore
+      (TabApiController::restore()) restores state and marks it online if hardware is registered.
+  • When and How it is UNSET to Offline ('N'):
+      • Missing Hardware Registration: If active_mac is null/empty OR ip_address is null/empty, the tab is strictly considered offline ('N').
+      • Connection Timeout (No constant heartbeat): If last_seen_at is null or older than 90 seconds (HEARTBEAT_TIMEOUT_SECONDS), the tab
+      is offline ('N').
+      • Automatic Stale Sync: Tab::syncStaleConnections() executes during dashboard and tab queries to synchronize stale database
+      records to connection_status = 'offline'.
+      • MAC Conflict Reassignment: If another physical tablet registers using a MAC address previously tied to this tab, the previous tab
+      is detached and set to connection_status = 'offline' (TabApiController::registerMac()).
+      • MAC Unregistration: Admin explicitly detaches the MAC via POST /tabs/{tab}/unregister-mac (TabController::unregisterMac()), which
+      sets active_mac = null and connection_status = 'offline'.
+      • Middleware Telemetry Disconnect: If middleware reports `tab_connected: false` or `is_connected: false` via heartbeat relay or batch station telemetry, the tab is immediately marked offline ('N') with the disconnect reason recorded.
+
+  ──────
+  ### 5. Telemetry Architecture & Proxy Heartbeat Solutions
+  In production, patron tablets communicate over a local pit network where Station Middleware acts as an aggregator. Two telemetry patterns are fully supported to guarantee accurate physical reachability:
+
+  #### Solution 1: Enhanced Single-Tab Telemetry Heartbeat Relay
+  * **Endpoint:** `POST|GET /api/v1/tabs/{id}/heartbeat` (handled by [`TabApiController::heartbeat`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php))
+  * **Payload Parameters:**
+    * `tab_connected` (boolean, optional, default `true`): Set to `false` when middleware cannot reach physical tablet.
+    * `disconnect_reason` (string, optional): e.g. `"wifi_drop"`, `"ping_timeout"`, `"power_off"`.
+    * `battery` (integer 0-100, optional): Tablet battery charge percentage.
+    * `is_charging` (boolean, optional): Whether tablet is plugged in / on charging dock.
+    * `wifi_rssi` (integer in dBm, optional): e.g. `-55` (strong), `-82` (weak).
+    * `app_version` (string, optional): Client application build version.
+  * **Behavior:** Persists diagnostic telemetry into `tab_statuses.recovery_data['telemetry']`. If `tab_connected: false`, tab is immediately marked `connection_status: 'offline'` ('A' = 'N').
+
+  #### Solution 2: Batch Station Telemetry API
+  * **Endpoints:**
+    * `POST /api/v1/station/{tableId}/telemetry`
+    * `POST /api/v1/station/tabs/telemetry`
+    * `POST /api/v1/station/telemetry` (handled by [`StationResultController::syncTelemetry`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/StationResultController.php))
+  * **Payload:**
+    ```json
+    {
+      "station_id": 1,
+      "tabs": [
+        {
+          "tab_id": 1,
+          "is_connected": true,
+          "battery": 88,
+          "is_charging": true,
+          "wifi_rssi": -54,
+          "app_version": "1.4.2"
+        },
+        {
+          "tab_number": 2,
+          "is_connected": false,
+          "disconnect_reason": "wifi_drop",
+          "battery": 15
+        }
+      ]
+    }
+    ```
+  * **Behavior:** Processes all tabs in the pit station atomically in a single network round-trip. Updates each tab's online status (`isOnline`), heartbeat timestamp (`last_seen_at`), and persists hardware metrics to `tab_statuses.recovery_data['telemetry']`.
+
+  ──────
+  ### Summary of Dashboard Visual Mapping
+
+  The 4 states work together to control the card appearance on the Cashier Dashboard (dashboard.blade.php:347-354):
+
+    E = 'N' (Disabled)  ──>  Slate Grey Border (.border-disabled)
+    U = 'L' (Locked)    ──>  Golden Amber Border (.border-locked)
+    F = 'N' (Occupied)  ──>  Glowing Red Border (.border-not-free)
+    F = 'Y' (Free/Idle) ──>  Emerald Green Border (.border-idle)
+**
+
 *Update this document after every implementation.*

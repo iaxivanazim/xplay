@@ -153,4 +153,167 @@ class StationResultController extends Controller
             'records' => $records,
         ]);
     }
+
+    /**
+     * Batch Station Telemetry API:
+     * Pit Station / Table Middleware aggregates and pushes hardware & reachability
+     * telemetry for all physical tablets in its pit in a single atomic request.
+     *
+     * POST /api/v1/station/{tableId}/telemetry
+     * POST /api/v1/station/telemetry
+     * POST /api/v1/station/tabs/telemetry
+     */
+    public function syncTelemetry(Request $request, $tableId = null)
+    {
+        $validator = Validator::make($request->all(), [
+            'station_id' => 'nullable',
+            'tabs'       => 'required|array|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $stationId = $tableId ?: $request->input('station_id');
+        $tabItems = $request->input('tabs', []);
+
+        $processed = [];
+        $onlineCount = 0;
+        $offlineCount = 0;
+
+        foreach ($tabItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            // Find Tab by id, tab_id, tab_number, or mac
+            $tab = null;
+            if (!empty($item['tab_id'])) {
+                $tab = Tab::with('statusRecord')->find($item['tab_id']);
+            } elseif (!empty($item['id'])) {
+                $tab = Tab::with('statusRecord')->find($item['id']);
+            } elseif (isset($item['tab_number'])) {
+                $tab = Tab::with('statusRecord')->where('tab_number', $item['tab_number'])->first();
+            } elseif (!empty($item['mac']) || !empty($item['active_mac'])) {
+                $rawMac = $item['mac'] ?? $item['active_mac'];
+                $cleanMac = strtoupper(str_replace('-', ':', trim($rawMac)));
+                $tab = Tab::with('statusRecord')->where('active_mac', $cleanMac)->first();
+            }
+
+            if (!$tab) {
+                $processed[] = [
+                    'identifier' => $item['tab_id'] ?? $item['id'] ?? $item['tab_number'] ?? $item['mac'] ?? 'unknown',
+                    'status'     => 'not_found',
+                    'message'    => 'Tab not found in database',
+                ];
+                continue;
+            }
+
+            // Optional auto-registration of IP / MAC if not already stored
+            if (!empty($item['ip_address']) && empty($tab->ip_address)) {
+                $tab->ip_address = $item['ip_address'];
+            }
+            if ((!empty($item['mac']) || !empty($item['active_mac'])) && empty($tab->active_mac)) {
+                $tab->active_mac = strtoupper(str_replace('-', ':', trim($item['mac'] ?? $item['active_mac'])));
+            }
+
+            // Tablet reachability reported by station middleware
+            $isConnected = true;
+            if (isset($item['is_connected'])) {
+                $isConnected = (bool) $item['is_connected'];
+            } elseif (isset($item['tab_connected'])) {
+                $isConnected = (bool) $item['tab_connected'];
+            }
+
+            // A tab is truly online only if both IP and MAC exist AND physical tablet is connected
+            $isHardwareBound = !empty($tab->active_mac) && !empty($tab->ip_address);
+            $isOnline = $isHardwareBound && $isConnected;
+
+            $tab->connection_status = $isOnline ? 'online' : 'offline';
+            if ($isOnline) {
+                $tab->last_seen_at = now();
+                $onlineCount++;
+            } else {
+                $offlineCount++;
+            }
+            $tab->save();
+
+            // Status record & telemetry persistence
+            $status = $tab->statusRecord;
+            if (!$status) {
+                $status = TabStatus::create([
+                    'tab_id'            => $tab->id,
+                    'status'            => 'idle',
+                    'lock_status'       => $tab->lock_status ?? 'unlocked',
+                    'current_balance'   => 0.00,
+                    'balance_version'   => 1,
+                    'connection_status' => $tab->connection_status,
+                    'active_mac'        => $tab->active_mac,
+                    'last_synced_at'    => now(),
+                ]);
+            }
+
+            $recoveryData = $status->recovery_data ?? [];
+            $telemetry = $recoveryData['telemetry'] ?? [];
+            $telemetry['tab_connected'] = $isConnected;
+
+            if (isset($item['battery'])) {
+                $telemetry['battery'] = (int) $item['battery'];
+            }
+            if (isset($item['is_charging'])) {
+                $telemetry['is_charging'] = (bool) $item['is_charging'];
+            }
+            if (isset($item['wifi_rssi'])) {
+                $telemetry['wifi_rssi'] = (int) $item['wifi_rssi'];
+            }
+            if (isset($item['app_version'])) {
+                $telemetry['app_version'] = (string) $item['app_version'];
+            }
+            if (isset($item['last_ping_ms'])) {
+                $telemetry['last_ping_ms'] = (int) $item['last_ping_ms'];
+            }
+
+            if (!$isConnected && !empty($item['disconnect_reason'])) {
+                $telemetry['disconnect_reason'] = (string) $item['disconnect_reason'];
+            } elseif ($isConnected) {
+                unset($telemetry['disconnect_reason']);
+            }
+
+            $telemetry['last_telemetry_at'] = now()->toIso8601String();
+            $recoveryData['telemetry'] = $telemetry;
+
+            $status->update([
+                'connection_status' => $tab->connection_status,
+                'active_mac'        => $tab->active_mac,
+                'last_synced_at'    => now(),
+                'recovery_data'     => $recoveryData,
+            ]);
+
+            $processed[] = [
+                'tab_id'            => $tab->id,
+                'tab_number'        => $tab->tab_number,
+                'table_name'        => $tab->table_name,
+                'connection_status' => $tab->connection_status,
+                'is_online'         => $isOnline,
+                'lock_status'       => $tab->lock_status,
+                'current_balance'   => (float) $status->current_balance,
+                'telemetry'         => $telemetry,
+            ];
+        }
+
+        return response()->json([
+            'success'          => true,
+            'message'          => "Batch telemetry synced successfully for " . count($processed) . " tab(s).",
+            'station_id'       => $stationId,
+            'total_processed'  => count($processed),
+            'online_count'     => $onlineCount,
+            'offline_count'    => $offlineCount,
+            'tabs'             => $processed,
+            'timestamp'        => now()->toIso8601String(),
+        ]);
+    }
 }

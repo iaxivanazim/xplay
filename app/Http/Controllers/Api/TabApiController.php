@@ -168,24 +168,25 @@ class TabApiController extends Controller
             ], 409);
         }
 
+        $incomingIp = $request->input('ip_address') ?: $tab->ip_address ?: $request->ip();
+        $isHardwareBound = !empty($incomingMac) && !empty($incomingIp);
+
         $updateData = [
             'active_mac'        => $incomingMac,
-            'connection_status' => 'online',
+            'ip_address'        => $incomingIp,
+            'connection_status' => $isHardwareBound ? 'online' : 'offline',
             'last_seen_at'      => now(),
         ];
-
-        if ($request->filled('ip_address')) {
-            $updateData['ip_address'] = $request->ip_address;
-        }
 
         $tab->update($updateData);
 
         if ($tab->statusRecord) {
-            $statusUpdate = ['active_mac' => $incomingMac];
-            if ($request->filled('ip_address')) {
-                $statusUpdate['ip_address'] = $request->ip_address;
-            }
-            $tab->statusRecord->update($statusUpdate);
+            $tab->statusRecord->update([
+                'active_mac'        => $incomingMac,
+                'ip_address'        => $incomingIp,
+                'connection_status' => $updateData['connection_status'],
+                'last_synced_at'    => now(),
+            ]);
         }
 
         return response()->json([
@@ -197,7 +198,7 @@ class TabApiController extends Controller
                 'table_name'        => $tab->table_name,
                 'active_mac'        => $incomingMac,
                 'ip_address'        => $tab->ip_address,
-                'connection_status' => 'online',
+                'connection_status' => $updateData['connection_status'],
             ],
         ]);
     }
@@ -355,10 +356,36 @@ class TabApiController extends Controller
             ], 404);
         }
 
-        $tab->update([
-            'connection_status' => 'online',
-            'last_seen_at'      => now(),
-        ]);
+        // Auto-capture IP from payload or client IP if not set
+        $incomingIp = $request->input('ip_address') ?: $request->ip();
+        if (empty($tab->ip_address) && $incomingIp) {
+            $tab->ip_address = $incomingIp;
+        }
+
+        // Auto-capture MAC from payload if provided
+        if ($request->filled('mac') || $request->filled('active_mac')) {
+            $incomingMac = strtoupper(str_replace('-', ':', trim($request->input('mac') ?: $request->input('active_mac'))));
+            if (empty($tab->active_mac)) {
+                $tab->active_mac = $incomingMac;
+            }
+        }
+
+        // Check if physical tablet is reachable by middleware (default true if not specified)
+        $tabConnected = true;
+        if ($request->has('tab_connected')) {
+            $tabConnected = $request->boolean('tab_connected');
+        } elseif ($request->has('is_connected')) {
+            $tabConnected = $request->boolean('is_connected');
+        }
+
+        // A tab is only online if both IP and MAC are registered AND physical tablet is connected
+        $isHardwareBound = !empty($tab->active_mac) && !empty($tab->ip_address);
+        $isOnline = $isHardwareBound && $tabConnected;
+        $tab->connection_status = $isOnline ? 'online' : 'offline';
+        if ($isOnline) {
+            $tab->last_seen_at = now();
+        }
+        $tab->save();
 
         $status = $tab->statusRecord;
         if (!$status) {
@@ -368,22 +395,55 @@ class TabApiController extends Controller
                 'lock_status'       => $tab->lock_status ?? 'unlocked',
                 'current_balance'   => 0.00,
                 'balance_version'   => 1,
-                'connection_status' => 'online',
+                'connection_status' => $tab->connection_status,
+                'active_mac'        => $tab->active_mac,
                 'last_synced_at'    => now(),
             ]);
-        } else {
-            $updateData = [
-                'connection_status' => 'online',
-                'last_synced_at'    => now(),
-            ];
-
-            if ($request->filled('last_game_no')) {
-                $updateData['last_game_no'] = $request->last_game_no;
-                $updateData['last_game_at'] = now();
-            }
-
-            $status->update($updateData);
         }
+
+        // Telemetry tracking (battery, charging, wifi_rssi, app_version, disconnect_reason)
+        $recoveryData = $status->recovery_data ?? [];
+        $telemetry = $recoveryData['telemetry'] ?? [];
+        $telemetry['tab_connected'] = $tabConnected;
+
+        if ($request->has('battery')) {
+            $telemetry['battery'] = (int) $request->input('battery');
+        }
+        if ($request->has('is_charging')) {
+            $telemetry['is_charging'] = (bool) $request->boolean('is_charging');
+        }
+        if ($request->has('wifi_rssi')) {
+            $telemetry['wifi_rssi'] = (int) $request->input('wifi_rssi');
+        }
+        if ($request->has('app_version')) {
+            $telemetry['app_version'] = (string) $request->input('app_version');
+        }
+        if ($request->has('last_ping_ms')) {
+            $telemetry['last_ping_ms'] = (int) $request->input('last_ping_ms');
+        }
+
+        if (!$tabConnected && $request->filled('disconnect_reason')) {
+            $telemetry['disconnect_reason'] = (string) $request->input('disconnect_reason');
+        } elseif ($tabConnected) {
+            unset($telemetry['disconnect_reason']);
+        }
+
+        $telemetry['last_telemetry_at'] = now()->toIso8601String();
+        $recoveryData['telemetry'] = $telemetry;
+
+        $updateData = [
+            'connection_status' => $tab->connection_status,
+            'active_mac'        => $tab->active_mac,
+            'last_synced_at'    => now(),
+            'recovery_data'     => $recoveryData,
+        ];
+
+        if ($request->filled('last_game_no')) {
+            $updateData['last_game_no'] = $request->last_game_no;
+            $updateData['last_game_at'] = now();
+        }
+
+        $status->update($updateData);
 
         $currentBalance = (float) $status->current_balance;
         $balanceVersion = (int) ($status->balance_version ?? 1);
@@ -411,7 +471,8 @@ class TabApiController extends Controller
             'tab_number'          => $tab->tab_number,
             'tab_name'            => $tab->table_name,
             'lock_status'         => $tab->lock_status,
-            'connection_status'   => 'online',
+            'connection_status'   => $tab->connection_status,
+            'is_online'           => $tab->isOnline(),
             'current_balance'     => $currentBalance,
             'balance_version'     => $balanceVersion,
             'balance_changed'     => $balanceChanged,
@@ -419,6 +480,7 @@ class TabApiController extends Controller
             'current_otp'         => $currentOtp,
             'otp_set'             => !empty($currentOtp),
             'requires_otp_prompt' => $requiresOtpPrompt,
+            'telemetry'           => $telemetry,
             'timestamp'           => now()->toIso8601String(),
         ]);
     }

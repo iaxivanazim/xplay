@@ -160,6 +160,7 @@
                         </div>
                         <div class="card-body p-4">
                             <div class="form-check form-switch mb-4">
+                                <input type="hidden" name="status" value="0">
                                 <input class="form-check-input" type="checkbox" name="status" value="1" id="tab_status" checked>
                                 <label class="form-check-label text-white" for="tab_status">
                                     Tab Enabled

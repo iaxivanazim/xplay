@@ -361,6 +361,14 @@
                                 @if($isLocked)
                                     <i class="bi bi-lock-fill text-warning ms-1" style="font-size:13px;" title="{{ $tab->lock_status === 'break' ? 'Break Mode (Locked)' : 'Locked' }}"></i>
                                 @endif
+                                @php
+                                    $telemetry = $status?->recovery_data['telemetry'] ?? null;
+                                @endphp
+                                @if($telemetry && isset($telemetry['battery']))
+                                    <span class="ms-1" style="font-size:10px; font-weight:normal; opacity:0.85;" title="Battery: {{ $telemetry['battery'] }}%{{ !empty($telemetry['is_charging']) ? ' (Charging)' : '' }}{{ isset($telemetry['wifi_rssi']) ? ' | Wi-Fi: ' . $telemetry['wifi_rssi'] . 'dBm' : '' }}">
+                                        <i class="bi {{ !empty($telemetry['is_charging']) ? 'bi-battery-charging text-warning' : ($telemetry['battery'] <= 20 ? 'bi-battery text-danger' : 'bi-battery-half text-white-50') }}"></i>{{ $telemetry['battery'] }}%
+                                    </span>
+                                @endif
                             </div>
 
                             @if($hasActiveSession)
@@ -440,6 +448,7 @@
                         <div>
                             <h5 class="modal-title fw-bold text-white mb-0" id="drawer_tab_name">Amatic-1</h5>
                             <div class="small text-secondary" id="drawer_tab_network">IP: 192.168.1.101 | MAC: 00:E0:4C:68:00:01</div>
+                            <div class="small" id="drawer_tab_telemetry" style="font-size:11px; margin-top:2px;"></div>
                         </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
@@ -645,6 +654,40 @@
                     document.getElementById('drawer_tab_number').innerText = t.tab_number;
                     document.getElementById('drawer_tab_name').innerText = t.table_name;
                     document.getElementById('drawer_tab_network').innerText = `IP: ${t.ip_address || 'Unassigned'} | MAC: ${t.active_mac || 'Unbound'}`;
+
+                    // Online status badge
+                    const onlineBadge = document.getElementById('drawer_online_badge');
+                    if (t.connection_status === 'online') {
+                        onlineBadge.className = 'badge bg-success';
+                        onlineBadge.innerText = 'ONLINE';
+                    } else {
+                        onlineBadge.className = 'badge bg-danger';
+                        onlineBadge.innerText = 'OFFLINE';
+                    }
+
+                    // Hardware Telemetry
+                    const telemEl = document.getElementById('drawer_tab_telemetry');
+                    const telem = (s.recovery_data && s.recovery_data.telemetry) ? s.recovery_data.telemetry : null;
+                    if (telem) {
+                        let parts = [];
+                        if (telem.battery !== undefined) {
+                            const battIcon = telem.is_charging ? 'bi-battery-charging text-warning' : (telem.battery > 20 ? 'bi-battery-full text-success' : 'bi-battery text-danger');
+                            parts.push(`<span><i class="bi ${battIcon} me-1"></i>Battery: <strong>${telem.battery}%</strong>${telem.is_charging ? ' ⚡' : ''}</span>`);
+                        }
+                        if (telem.wifi_rssi !== undefined) {
+                            const wifiColor = telem.wifi_rssi > -65 ? 'text-success' : (telem.wifi_rssi > -80 ? 'text-warning' : 'text-danger');
+                            parts.push(`<span><i class="bi bi-wifi ${wifiColor} me-1"></i>Wi-Fi: <strong>${telem.wifi_rssi} dBm</strong></span>`);
+                        }
+                        if (telem.app_version) {
+                            parts.push(`<span class="text-white-50"><i class="bi bi-app me-1"></i>v${telem.app_version}</span>`);
+                        }
+                        if (telem.tab_connected === false && telem.disconnect_reason) {
+                            parts.push(`<span class="badge bg-danger text-white"><i class="bi bi-exclamation-octagon me-1"></i>${telem.disconnect_reason}</span>`);
+                        }
+                        telemEl.innerHTML = parts.join(' &bull; ') || '<span class="text-secondary">No hardware metrics</span>';
+                    } else {
+                        telemEl.innerHTML = '<span class="text-secondary"><i class="bi bi-cpu me-1"></i>No hardware telemetry reported yet</span>';
+                    }
 
                     // Lock status badge
                     const lockBadge = document.getElementById('drawer_lock_badge');

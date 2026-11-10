@@ -114,6 +114,7 @@
                             </div>
 
                             <div class="form-check form-switch mb-0">
+                                <input type="hidden" name="status" value="0">
                                 <input class="form-check-input" type="checkbox" name="status" value="1" id="bulkStatusSwitch" checked>
                                 <label class="form-check-label text-secondary small" for="bulkStatusSwitch">
                                     Enable newly created tabs immediately

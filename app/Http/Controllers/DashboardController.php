@@ -20,6 +20,8 @@ class DashboardController extends Controller
      */
     public function index()
     {
+        Tab::syncStaleConnections();
+
         $tabs = Tab::with([
             'statusRecord',
             'currentSession',
@@ -81,7 +83,7 @@ class DashboardController extends Controller
                 'active_mac'        => $tab->active_mac,
                 'denomination'      => $tab->denomination,
                 'lock_status'       => $tab->lock_status,
-                'connection_status' => $tab->connection_status,
+                'connection_status' => $tab->isOnline() ? 'online' : 'offline',
                 'status'            => $tab->status,
                 'game_config_id'    => $tab->game_config_id,
                 'game_config_name'  => $tab->gameConfig?->name,

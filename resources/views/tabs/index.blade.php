@@ -252,7 +252,7 @@
                                 $isUnlocked = ($tab->lock_status === 'unlocked');
                                 $isEnabled  = ($tab->status == 1);
                                 $isFree     = (!$status || $status->status === 'idle' || $status->current_balance == 0);
-                                $isOnline   = ($tab->connection_status === 'online');
+                                $isOnline   = $tab->isOnline();
 
                                 $creditsVal = $status ? (float)$status->current_balance : 0.00;
                                 $lastBetVal = $status ? (float)$status->shift_last_bet : 0.00;
@@ -289,7 +289,13 @@
 
                                 {{-- A --}}
                                 <td class="text-center">
-                                    <span class="{{ $isOnline ? 'badge-y' : 'badge-n' }}">
+                                    @php
+                                        $telemetry = $status?->recovery_data['telemetry'] ?? null;
+                                        $telemetryTooltip = $isOnline 
+                                            ? ('Online (Heartbeat OK)' . ($telemetry && isset($telemetry['battery']) ? ' | Battery: ' . $telemetry['battery'] . '%' . (isset($telemetry['wifi_rssi']) ? ' | Wi-Fi: ' . $telemetry['wifi_rssi'] . 'dBm' : '') : ''))
+                                            : ('Offline' . (!empty($telemetry['disconnect_reason']) ? ' (' . $telemetry['disconnect_reason'] . ')' : ''));
+                                    @endphp
+                                    <span class="{{ $isOnline ? 'badge-y' : 'badge-n' }}" title="{{ $telemetryTooltip }}">
                                         {{ $isOnline ? 'Y' : 'N' }}
                                     </span>
                                 </td>
