@@ -463,6 +463,14 @@ sequenceDiagram
       - Animated gold halo highlighting the winning pocket.
       - Full placed bets breakdown table showing Position #, Bet Name, Rule Type, Covered Numbers, Wager, Multiplier, Outcome, and Payout Win.
   - [x] Created test suite [`RouletteResultingTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/RouletteResultingTest.php) (5 passed, 57 assertions, 100% passing).
+  - [x] **Game History Module Overhaul & Multi-Game Fixes**:
+    - Renamed "Table" filter to "Tab" and unified display as `Tab Name (Tab #ID)`.
+    - Removed redundant separate "Tab ID" filter.
+    - Removed JavaScript listener that previously wiped out / hid tab choices upon changing game types.
+    - Fixed Baccarat and Andar Bahar viewing, pagination, and filtering across web and API endpoints.
+    - Added automated `date_time`, `game_no`, and `bet_position` defaults, string card parsing, and winner normalization in [`GameHistoryController::store`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php).
+    - Fixed modal JavaScript crash when `winner` is null/undefined and enabled card parsing for Baccarat and Andar Bahar hands in [`history/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/index.blade.php) and [`history/partials/cards.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/partials/cards.blade.php).
+    - Created automated test suite [`GameHistoryModuleTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameHistoryModuleTest.php) (9 passed, 34 assertions, 100% passing).
 - [ ] **Phase 8: Kafka Real-Time Messaging Layer**
   - [ ] Deploy Kafka producers for station events, resulting, and cashier tab commands.
 
@@ -622,6 +630,21 @@ In the XPLAY ETG / Tab-Based Casino Gaming System, 'U', 'E', 'F', and 'A' repres
     }
     ```
   * **Behavior:** Processes all tabs in the pit station atomically in a single network round-trip. Updates each tab's online status (`isOnline`), heartbeat timestamp (`last_seen_at`), and persists hardware metrics to `tab_statuses.recovery_data['telemetry']`.
+
+  ──────
+  ### 6. Payout Rules Min and Max Multi-Valued Limits
+  Each payout rule supports customizable `min` and `max` wagering limit columns:
+  * **Database Columns:** `payout_rules.min` and `payout_rules.max` (string, nullable).
+  * **Format:** Supports pipe-separated multi-values (e.g., `10|25|50` and `500|1000|2000`) as well as single values (e.g., `5` and `100`).
+  * **Model Helpers:** [`PayoutRule::$min_values`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php) and [`PayoutRule::$max_values`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php) parse pipe strings into float arrays (e.g. `[10.0, 25.0, 50.0]`).
+  * **Validation:** Validated via [`App\Rules\PipeSeparatedNumbers`](file:///C:/xampp/htdocs/xplay/app/Rules/PipeSeparatedNumbers.php) upon store and update.
+  * **UI Management:** Displayed and editable in [`resources/views/payout_rules/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/payout_rules/index.blade.php) via AJAX with immediate persistence.
+  * **API Coverage:** Included in:
+    * `GET /api/v1/payout-rules/game-type/{id}` ([`PayoutRuleController::apiByGameType`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/PayoutRuleController.php))
+    * `GET /api/v1/payout-rules/rule/{id}` ([`PayoutRuleController::apiShow`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/PayoutRuleController.php))
+    * `GET /api/v1/payout-rules/{gameTypeId}` (`routes/api.php`)
+    * `GET /api/v1/tabs/{id}/configuration` ([`TabApiController::configuration`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php))
+    * `GET /api/v1/game-tables/{id}/configuration` ([`FormatsGameTable::formatTable`](file:///C:/xampp/htdocs/xplay/app/FormatsGameTable.php))
 
   ──────
   ### Summary of Dashboard Visual Mapping

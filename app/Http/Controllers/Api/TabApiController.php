@@ -235,6 +235,8 @@ class TabApiController extends Controller
                     'bet_name'   => $r->payoutRule?->bet_name,
                     'position'   => $r->payoutRule?->bet_position,
                     'multiplier' => $r->payout_multiplier ?? $r->payoutRule?->payout_multiplier,
+                    'min'        => $r->payoutRule?->min,
+                    'max'        => $r->payoutRule?->max,
                 ])->values(),
             ];
         });

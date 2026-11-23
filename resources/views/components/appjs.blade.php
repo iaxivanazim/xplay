@@ -177,6 +177,24 @@ onchange="updateRule(${r.payout_id},this.value,'payout_multiplier')">
 
 </td>
 
+<td>
+
+<input class="form-control"
+value="${r.min ?? ''}"
+placeholder="e.g. 10 or 10|25|50"
+onchange="updateRule(${r.payout_id},this.value,'min')">
+
+</td>
+
+<td>
+
+<input class="form-control"
+value="${r.max ?? ''}"
+placeholder="e.g. 500 or 500|1000|2000"
+onchange="updateRule(${r.payout_id},this.value,'max')">
+
+</td>
+
 
 <td>
 
@@ -248,6 +266,14 @@ placeholder="Position">
 class="swal2-input"
 placeholder="Multiplier">
 
+<input id="rule_min"
+class="swal2-input"
+placeholder="Min (e.g. 10 or 10|25|50)">
+
+<input id="rule_max"
+class="swal2-input"
+placeholder="Max (e.g. 500 or 500|1000|2000)">
+
 `,
 
             preConfirm: () => {
@@ -261,6 +287,10 @@ placeholder="Multiplier">
                     bet_position: $('#bet_position').val(),
 
                     payout_multiplier: $('#multiplier').val(),
+
+                    min: $('#rule_min').val(),
+
+                    max: $('#rule_max').val(),
 
                     is_active: 1,
 

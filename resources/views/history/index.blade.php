@@ -7,7 +7,7 @@
       <h4 class="text-warning mb-0"><i class="bi bi-clock-history me-2"></i>Game History</h4>
       @if($selectedTable)
         <small class="text-secondary">
-          {{ $selectedTable->table_name }} &mdash; {{ $selectedTable->gameType->name }}
+          {{ $selectedTable->table_name }} (Tab #{{ $selectedTable->tab_number ?? $selectedTable->id }}) &mdash; {{ $selectedTable->gameType?->name ?? 'All Games' }}
         </small>
       @endif
     </div>
@@ -29,47 +29,29 @@
               @endforeach
             </select>
           </div>
-          <div class="col-md-2">
-            <label class="form-label text-secondary small mb-1">Table</label>
+          <div class="col-md-3">
+            <label class="form-label text-secondary small mb-1">Tab</label>
             <select name="table_id" class="form-select form-select-sm bg-black text-white border-secondary" id="tableSelect">
-              <option value="">-- Select Table --</option>
+              <option value="">-- Select Tab --</option>
               @foreach($tables as $t)
                 <option value="{{ $t->id }}"
-                  data-game="{{ $t->gameType->code }}"
-                  {{ request('table_id') == $t->id ? 'selected' : '' }}>
-                  {{ $t->table_name }}
+                  {{ request('table_id', request('tab')) == $t->id ? 'selected' : '' }}>
+                  {{ $t->table_name }} (Tab #{{ $t->tab_number ?? $t->id }})
                 </option>
               @endforeach
             </select>
           </div>
-          <div class="col-md-1">
+          <div class="col-md-2">
             <label class="form-label text-secondary small mb-1">Game No</label>
             <input type="text" name="game_no" value="{{ request('game_no') }}"
               class="form-control form-control-sm bg-black text-white border-secondary" placeholder="G#...">
-          </div>
-          <div class="col-md-1">
-            <label class="form-label text-secondary small mb-1">Tab ID</label>
-            @if(empty($tabIds))
-              <select name="tab_id" class="form-select form-select-sm bg-black text-secondary border-secondary" disabled>
-                <option>— Select Table —</option>
-              </select>
-            @else
-              <select name="tab_id" class="form-select form-select-sm bg-black text-white border-secondary">
-                <option value="">All Tabs</option>
-                @foreach($tabIds as $tid)
-                  <option value="{{ $tid }}" {{ request('tab_id') == $tid ? 'selected' : '' }}>
-                    {{ $tid }}
-                  </option>
-                @endforeach
-              </select>
-            @endif
           </div>
           <div class="col-md-2">
             <label class="form-label text-secondary small mb-1">Date</label>
             <input type="date" name="date" value="{{ request('date') }}"
               class="form-control form-control-sm bg-black text-white border-secondary">
           </div>
-          <div class="col-md-2">
+          <div class="col-md-1">
             <label class="form-label text-secondary small mb-1">Winner</label>
             <select name="winner" class="form-select form-select-sm bg-black text-white border-secondary">
               <option value="">All</option>
@@ -104,15 +86,15 @@
   </div>
 
   {{-- Results --}}
-  @if(!$normalizedGame || !request('table_id'))
+  @if(!$normalizedGame || !request('table_id', request('tab')))
     <div class="text-center text-secondary py-5">
       <i class="bi bi-funnel" style="font-size:2rem"></i>
-      <p class="mt-2">Select a game type and table to view history.</p>
+      <p class="mt-2">Select a game type and tab to view history.</p>
     </div>
   @elseif(empty($records['data']))
     <div class="text-center text-secondary py-5">
       <i class="bi bi-inbox" style="font-size:2rem"></i>
-      <p class="mt-2">No records found for this table.</p>
+      <p class="mt-2">No records found for this tab.</p>
     </div>
   @else
 
@@ -211,7 +193,7 @@
               <th>Game No</th>
               @if($normalizedGame === 'baccarat') <th>Shoe</th> @endif
               <th>Time</th>
-              <th>Tab ID</th>
+              <th>Tab</th>
               <th>{{ $normalizedGame === 'roulette' ? 'Result' : 'Cards' }}</th>
               <th>Winner</th>
               <th>Bet Position</th>
@@ -346,16 +328,6 @@
 
 @push('scripts')
 <script>
-// Filter: auto-filter table dropdown by game type
-document.getElementById('gameTypeSelect')?.addEventListener('change', function() {
-  const game = this.value;
-  const tableSelect = document.getElementById('tableSelect');
-  [...tableSelect.options].forEach(opt => {
-    opt.hidden = game ? (opt.dataset.game !== game && opt.value !== '') : false;
-  });
-  tableSelect.value = '';
-});
-
 // Row click → modal detail
 document.querySelectorAll('.history-row').forEach(row => {
   row.addEventListener('click', function() {
@@ -382,7 +354,7 @@ document.querySelectorAll('.history-row').forEach(row => {
 });
 
 function renderDetail(d, game) {
-  const fmt = n => parseFloat(n).toLocaleString('en', {minimumFractionDigits:2});
+  const fmt = n => parseFloat(n || 0).toLocaleString('en', {minimumFractionDigits:2});
 
   if (game === 'roulette') {
     return renderRouletteDetail(d, fmt);
@@ -439,7 +411,7 @@ function renderDetail(d, game) {
       splitHtml += `<div class="border border-secondary rounded p-2 mb-2">
         <div class="d-flex justify-content-between mb-1">
           <span class="text-secondary small">Hand #${s.split_no}</span>
-          <span class="badge bg-${s.winner==='player'?'primary':'danger'}">${s.winner.toUpperCase()}</span>
+          <span class="badge bg-${s.winner==='player'?'primary':'danger'}">${(s.winner || '—').toUpperCase()}</span>
         </div>
         ${renderCards(s.cards)}
         <div class="d-flex gap-3 mt-1" style="font-size:.8rem">
@@ -482,13 +454,20 @@ function renderDetail(d, game) {
     sideWinHtml = d.side_win ?? '—';
   }
 
+  const w = (d.winner || d.winning_colour || '').toLowerCase();
+  const winnerBadgeClass = ['player','andar','dragon'].includes(w) ? 'primary' :
+                           ['banker','bahar','tiger','red'].includes(w) ? 'danger' :
+                           ['tie','green'].includes(w) ? 'success' :
+                           w === 'black' ? 'dark border border-secondary' : 'warning';
+  const winnerDisplay = (d.winner || d.winning_colour || '—').toString().toUpperCase();
+
   return `<div>
     ${cards}
     ${splitHtml}
     <hr class="border-secondary my-3">
     <div class="row g-3" style="font-size:.9rem">
       <div class="col-6 col-md-3"><div class="text-secondary small">Winner</div>
-        <span class="badge bg-primary">${d.winner.toUpperCase()}</span></div>
+        <span class="badge bg-${winnerBadgeClass}">${winnerDisplay}</span></div>
       <div class="col-6 col-md-3"><div class="text-secondary small">Bet Position</div>
         <div class="text-white">${betPosHtml}</div></div>
       <div class="col-6 col-md-3"><div class="text-secondary small">Bet Amount</div>
@@ -505,7 +484,7 @@ function renderDetail(d, game) {
       <div class="col-6 col-md-3"><div class="text-secondary small">Side Win</div>
         <div class="text-warning">${sideWinHtml}</div></div>
       <div class="col-12"><div class="text-secondary small">Date / Time</div>
-        <div class="text-secondary">${d.date_time}</div></div>
+        <div class="text-secondary">${d.date_time || '—'}</div></div>
     </div>
   </div>`;
 }
@@ -513,6 +492,16 @@ function renderDetail(d, game) {
 function renderCards(cards) {
   if (!cards) return '<span class="text-muted">—</span>';
   
+  if (typeof cards === 'string') {
+    try {
+      const parsed = JSON.parse(cards);
+      if (Array.isArray(parsed)) cards = parsed;
+      else cards = [parsed];
+    } catch (e) {
+      cards = cards.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+
   const flatten = (arr) => arr.reduce((acc, val) => 
     Array.isArray(val) ? acc.concat(flatten(val)) : acc.concat(val), []
   );

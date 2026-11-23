@@ -59,7 +59,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/game-tables/{id}/bet-index', [GameTableController::class, 'setBetIndex']);
 
     Route::get('/payout-rules/game-type/{id}', [PayoutRuleController::class, 'apiByGameType']);
-    // Route::get('/payout-rules/{id}', [PayoutRuleController::class, 'apiShow'])->whereNumber('id');
+    Route::get('/payout-rules/rule/{id}',      [PayoutRuleController::class, 'apiShow'])->whereNumber('id');
 
     // API route for fetching payout rules by game type (used in form JS)
     Route::get('/payout-rules/{gameTypeId}', function ($gameTypeId) {
