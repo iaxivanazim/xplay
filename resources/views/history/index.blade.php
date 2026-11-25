@@ -513,7 +513,7 @@ function renderCards(cards) {
   const suitColor = s => ['h','d'].includes(s) ? '#dc3545' : '#fff';
   const suitSymbol = s => suitMap[s] || s;
   
-  return flatArr.map(c => {
+  const html = flatArr.map(c => {
     if (!c) return '';
     const str = String(c).trim();
     if (!str) return '';
@@ -539,6 +539,8 @@ function renderCards(cards) {
       style="width:32px;height:42px;font-size:.8rem;font-weight:700;color:${suitColor(suit)};background:#111">
       ${rank}<span style="font-size:.7rem">${suitSymbol(suit)}</span></span>`;
   }).join('');
+
+  return html || '<span class="text-muted">—</span>';
 }
 
 // ── 156-Position Roulette Visual Modal Board Renderer ─────────────────────────

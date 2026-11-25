@@ -10,10 +10,13 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RouletteHistory;
 use App\Models\User;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class GameHistoryModuleTest extends TestCase
 {
+    use DatabaseTransactions;
+
     protected User $user;
     protected GameTable $tab1;
 
@@ -238,5 +241,92 @@ class GameHistoryModuleTest extends TestCase
         $resp = $this->getJson("/api/v1/history/baccarat/tab/{$this->tab1->tab_number}");
         $resp->assertStatus(200);
         $resp->assertJsonStructure(['data', 'current_page']);
+    }
+
+    public function test_api_stores_andarbahar_history_without_joker_or_cards(): void
+    {
+        // Reproduces exact payload shape from bug report without joker_card/andar_cards/bahar_cards
+        $payload = [
+            'table_id'       => $this->tab1->id,
+            'game_no'        => 'AB-MISSING-CARDS-01',
+            'tab_id'         => 'TAB-01',
+            'winner'         => 'andar',
+            'side_win'       => ['none'],
+            'bet_position'   => ['andar' => '200', 'joker_red' => '50'],
+            'bet_amount'     => 250,
+            'win_amount'     => 390,
+            'current_credit' => 1140,
+            'date_time'      => '2026-10-21 19:50:00',
+        ];
+
+        $response = $this->postJson('/api/v1/history/andarbahar', $payload);
+        $response->assertStatus(201);
+        $response->assertJson(['success' => true]);
+
+        $this->assertDatabaseHas('andarbahar_history', [
+            'game_no'    => 'AB-MISSING-CARDS-01',
+            'joker_card' => '',
+            'winner'     => 'andar',
+        ]);
+
+        // Also test explicit nulls
+        $nullResp = $this->postJson('/api/v1/history/andarbahar', [
+            'table_id'    => $this->tab1->id,
+            'game_no'     => 'AB-NULL-CARDS-02',
+            'joker_card'  => null,
+            'andar_cards' => null,
+            'bahar_cards' => null,
+            'winner'      => null,
+        ]);
+        $nullResp->assertStatus(201);
+    }
+
+    public function test_api_stores_baccarat_history_with_missing_cards_and_form_data_strings(): void
+    {
+        $response = $this->postJson('/api/v1/history/baccarat', [
+            'table_id'     => $this->tab1->id,
+            'game_no'      => 'BAC-MINIMAL-01',
+            'bet_position' => '{"banker":100,"player_pair":25}',
+            'bet_amount'   => 125,
+        ]);
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('baccarat_history', [
+            'game_no' => 'BAC-MINIMAL-01',
+            'winner'  => '',
+        ]);
+    }
+
+    public function test_api_validates_roulette_and_invalid_table_id(): void
+    {
+        // Roulette pocket 0 is valid
+        $zeroResp = $this->postJson('/api/v1/history/roulette', [
+            'table_id'       => $this->tab1->id,
+            'game_no'        => 'ROU-ZERO-01',
+            'winning_number' => 0,
+            'bet_amount'     => 10,
+            'win_amount'     => 360,
+        ]);
+        $zeroResp->assertStatus(201);
+        $this->assertDatabaseHas('roulette_history', [
+            'game_no'        => 'ROU-ZERO-01',
+            'winning_number' => 0,
+            'winning_colour' => 'green',
+        ]);
+
+        // Missing winning_number returns 422 JSON instead of 500 SQLSTATE 1364
+        $missingResp = $this->postJson('/api/v1/history/roulette', [
+            'table_id' => $this->tab1->id,
+            'game_no'  => 'ROU-INVALID-01',
+        ]);
+        $missingResp->assertStatus(422);
+        $missingResp->assertJsonPath('success', false);
+
+        // Non-existent table_id returns 422 JSON instead of 500 SQLSTATE 1452
+        $badTableResp = $this->postJson('/api/v1/history/andarbahar', [
+            'table_id'   => 999999,
+            'joker_card' => 'Ks',
+        ]);
+        $badTableResp->assertStatus(422);
+        $badTableResp->assertJsonPath('success', false);
     }
 }

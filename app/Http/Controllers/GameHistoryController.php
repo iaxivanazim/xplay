@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use App\Models\BaccaratHistory;
 use App\Models\AndarbaharHistory;
 use App\Models\RouletteHistory;
@@ -63,37 +65,56 @@ class GameHistoryController extends Controller
 
     public function store(Request $request, string $game)
     {
-        $model = $this->resolveModel($game);
-        $data = $request->all();
+        $model          = $this->resolveModel($game);
+        $normalizedGame = $this->gameMap[strtoupper($game)][2];
+        $data           = $request->all();
 
-        // Support multiple bet positions in format "banker:100,tie:200" or as array
+        // Parse bet_position (supports array/object, JSON string, or "key:val,..." format)
         if (isset($data['bet_position']) && is_string($data['bet_position'])) {
             $data['bet_position'] = $this->parseKeyValueString($data['bet_position']);
+        } elseif (empty($data['bet_position']) || !is_array($data['bet_position'])) {
+            $data['bet_position'] = [];
         }
 
-        // Support side_win in format "player_pair,lucky6" or as array
-        if (isset($data['side_win']) && is_string($data['side_win'])) {
-            $data['side_win'] = array_map('trim', explode(',', $data['side_win']));
+        // Parse side_win in format "player_pair,lucky6", JSON string, or array
+        if (array_key_exists('side_win', $data) && $data['side_win'] !== null) {
+            $data['side_win'] = $this->parseListField($data['side_win']);
         }
 
-        // Parse card fields if passed as comma strings or JSON strings
+        // Parse card list fields if passed as comma strings or JSON strings
         foreach (['player_cards', 'banker_cards', 'andar_cards', 'bahar_cards'] as $cardField) {
-            if (isset($data[$cardField]) && is_string($data[$cardField])) {
-                $trimmed = trim($data[$cardField]);
-                if (str_starts_with($trimmed, '[') && str_ends_with($trimmed, ']')) {
-                    $decoded = json_decode($trimmed, true);
-                    if (is_array($decoded)) {
-                        $data[$cardField] = $decoded;
-                    }
-                } else {
-                    $data[$cardField] = array_values(array_filter(array_map('trim', explode(',', $trimmed))));
-                }
+            if (array_key_exists($cardField, $data)) {
+                $data[$cardField] = $this->parseListField($data[$cardField]);
             }
         }
 
-        // Ensure date_time is always populated
+        $numericValidator = Validator::make($data, [
+            'bet_amount'     => 'nullable|numeric',
+            'win_amount'     => 'nullable|numeric',
+            'current_credit' => 'nullable|numeric',
+            'shoe_no'        => 'nullable|integer|min:0',
+        ]);
+        if ($numericValidator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors'  => $numericValidator->errors(),
+            ], 422);
+        }
+
+        // Ensure date_time is always populated and valid
         if (empty($data['date_time'])) {
             $data['date_time'] = now();
+        } else {
+            try {
+                $data['date_time'] = Carbon::parse($data['date_time']);
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors'  => ['date_time' => ['Invalid date_time format. Use YYYY-MM-DD HH:MM:SS or ISO 8601.']],
+                ], 422);
+            }
         }
 
         // Fallback game_no / round_no
@@ -102,12 +123,22 @@ class GameHistoryController extends Controller
         }
 
         // Bidirectional table_id and tab_id resolution
-        if (!empty($data['table_id']) && empty($data['tab_id'])) {
-            $tab = GameTable::find($data['table_id']);
-            if ($tab) {
-                $data['tab_id'] = (string)($tab->tab_number ?? $tab->id);
+        if (!empty($data['table_id'])) {
+            if (!is_numeric($data['table_id']) || !GameTable::where('id', (int)$data['table_id'])->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors'  => ['table_id' => ['The specified table_id does not exist in tabs.']],
+                ], 422);
             }
-        } elseif (empty($data['table_id']) && !empty($data['tab_id'])) {
+            $data['table_id'] = (int) $data['table_id'];
+            if (empty($data['tab_id'])) {
+                $tab = GameTable::find($data['table_id']);
+                if ($tab) {
+                    $data['tab_id'] = (string)($tab->tab_number ?? $tab->id);
+                }
+            }
+        } elseif (!empty($data['tab_id'])) {
             $tab = GameTable::where('tab_number', $data['tab_id'])
                 ->orWhere('id', $data['tab_id'])
                 ->orWhere('table_name', $data['tab_id'])
@@ -116,30 +147,61 @@ class GameHistoryController extends Controller
                 $data['table_id'] = $tab->id;
             }
         }
+
         if (empty($data['table_id'])) {
-            $data['table_id'] = 1;
+            $fallbackTabId = GameTable::query()->orderBy('id')->value('id');
+            if (!$fallbackTabId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors'  => ['table_id' => ['No active tabs exist to associate this history record with.']],
+                ], 422);
+            }
+            $data['table_id'] = $fallbackTabId;
         }
 
         // Normalize winner string
         if (isset($data['winner']) && is_string($data['winner'])) {
             $w = strtolower(trim($data['winner']));
             if ($w === 'p') $data['winner'] = 'player';
-            elseif ($w === 'b' && in_array(strtolower($game), ['baccarat', 'bac'])) $data['winner'] = 'banker';
+            elseif ($w === 'b' && $normalizedGame === 'baccarat') $data['winner'] = 'banker';
             elseif ($w === 't') $data['winner'] = 'tie';
             elseif ($w === 'a') $data['winner'] = 'andar';
-            elseif ($w === 'b' && in_array(strtolower($game), ['andarbahar', 'ab', 'andar_bahar', 'andar-bahar'])) $data['winner'] = 'bahar';
+            elseif ($w === 'b' && $normalizedGame === 'andarbahar') $data['winner'] = 'bahar';
+            else $data['winner'] = substr(trim($data['winner']), 0, 20);
         }
 
-        // Set numeric and array defaults
+        // Set numeric defaults
         $data['bet_amount']     = $data['bet_amount'] ?? 0;
         $data['win_amount']     = $data['win_amount'] ?? 0;
         $data['current_credit'] = $data['current_credit'] ?? 0;
-        if (!isset($data['bet_position'])) {
-            $data['bet_position'] = [];
-        }
 
-        if ($model === RouletteHistory::class) {
-            if (isset($data['winning_number']) && empty($data['winning_colour'])) {
+        // Ensure non-nullable game-specific columns always have valid values
+        if ($model === AndarbaharHistory::class) {
+            $jokerCard = $data['joker_card'] ?? '';
+            if (is_array($jokerCard)) {
+                $jokerCard = reset($jokerCard) ?: '';
+            }
+            $data['joker_card']  = is_scalar($jokerCard) ? substr(trim((string) $jokerCard), 0, 10) : '';
+            $data['andar_cards'] = $data['andar_cards'] ?? [];
+            $data['bahar_cards'] = $data['bahar_cards'] ?? [];
+            $data['winner']      = is_scalar($data['winner'] ?? null) ? (string) $data['winner'] : '';
+        } elseif ($model === BaccaratHistory::class) {
+            $data['player_cards'] = $data['player_cards'] ?? [];
+            $data['banker_cards'] = $data['banker_cards'] ?? [];
+            $data['winner']       = is_scalar($data['winner'] ?? null) ? (string) $data['winner'] : '';
+        } elseif ($model === RouletteHistory::class) {
+            $validator = Validator::make($data, [
+                'winning_number' => 'required|integer|min:0|max:36',
+            ]);
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors'  => $validator->errors(),
+                ], 422);
+            }
+            if (empty($data['winning_colour'])) {
                 $data['winning_colour'] = \App\Services\RouletteEngine::getColor((int)$data['winning_number']);
             }
             if (empty($data['roulette_type'])) {
@@ -148,20 +210,55 @@ class GameHistoryController extends Controller
         }
 
         $record = $model::create($data);
-        return response()->json(['success' => true, 'id' => $record->id], 201);
+        return response()->json([
+            'success' => true,
+            'id'      => $record->id,
+            'data'    => $record,
+        ], 201);
+    }
+
+    private function parseListField(mixed $value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $trimmed = trim($value);
+        if (str_starts_with($trimmed, '[') && str_ends_with($trimmed, ']')) {
+            $decoded = json_decode($trimmed, true);
+            if (is_array($decoded)) {
+                return array_values($decoded);
+            }
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', $trimmed)), fn ($v) => $v !== ''));
     }
 
     private function parseKeyValueString(string $str): array
     {
-        if (empty($str)) return [];
-        
-        $parts = explode(',', $str);
+        $trimmed = trim($str);
+        if ($trimmed === '') {
+            return [];
+        }
+
+        if ((str_starts_with($trimmed, '{') && str_ends_with($trimmed, '}')) ||
+            (str_starts_with($trimmed, '[') && str_ends_with($trimmed, ']'))) {
+            $decoded = json_decode($trimmed, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        $parts  = explode(',', $trimmed);
         $result = [];
         foreach ($parts as $part) {
             if (str_contains($part, ':')) {
                 [$key, $val] = explode(':', $part, 2);
                 $result[trim($key)] = trim($val);
-            } else {
+            } elseif (trim($part) !== '') {
                 $result[] = trim($part);
             }
         }
