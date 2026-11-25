@@ -267,6 +267,12 @@
 
                 // Load payout rules via API
                 if (gameTypeId) {
+                    const oldRules       = @json(old('payout_rules'));
+                    const oldMultipliers = @json(old('payout_multipliers', []));
+                    const oldRuleMins    = @json(old('payout_rule_mins', []));
+                    const oldRuleMaxs    = @json(old('payout_rule_maxs', []));
+                    const escHtml = v => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
                     payoutContainer.innerHTML = '<div class="text-warning small"><i class="bi bi-arrow-repeat spin me-2"></i>Loading payout rules...</div>';
                     fetch('/api/v1/payout-rules/' + gameTypeId)
                         .then(res => res.json())
@@ -280,19 +286,46 @@
                             payoutBadge.innerText = rules.length + ' Rules Available';
                             let html = '<div class="row g-2">';
                             rules.forEach(r => {
-                                const mult = r.payout_multiplier !== null ? r.payout_multiplier : '';
+                                const id = String(r.payout_id);
+                                const isChecked = oldRules !== null ? Object.prototype.hasOwnProperty.call(oldRules, id) : true;
+                                const mult = Object.prototype.hasOwnProperty.call(oldMultipliers, id)
+                                    ? (oldMultipliers[id] ?? '')
+                                    : (r.payout_multiplier !== null ? r.payout_multiplier : '');
+                                const minVal = Object.prototype.hasOwnProperty.call(oldRuleMins, id)
+                                    ? (oldRuleMins[id] ?? '')
+                                    : (r.min ?? '');
+                                const maxVal = Object.prototype.hasOwnProperty.call(oldRuleMaxs, id)
+                                    ? (oldRuleMaxs[id] ?? '')
+                                    : (r.max ?? '');
+
                                 html += `
                                 <div class="col-md-6">
-                                    <div class="d-flex align-items-center justify-content-between p-2 rounded" style="background:#161f28; border:1px solid #233547;">
-                                        <div class="form-check mb-0">
-                                            <input class="form-check-input" type="checkbox" name="payout_rules[${r.payout_id}]" value="1" id="rule_${r.payout_id}" checked>
-                                            <label class="form-check-label text-white small" for="rule_${r.payout_id}">
-                                                ${r.bet_name} ${r.bet_position ? '(' + r.bet_position + ')' : ''}
-                                            </label>
+                                    <div class="p-2 rounded" style="background:#161f28; border:1px solid #233547;">
+                                        <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" name="payout_rules[${r.payout_id}]" value="1" id="rule_${r.payout_id}" ${isChecked ? 'checked' : ''}>
+                                                <label class="form-check-label text-white small fw-semibold" for="rule_${r.payout_id}">
+                                                    ${escHtml(r.bet_name)} ${r.bet_position ? '(' + escHtml(r.bet_position) + ')' : ''}
+                                                </label>
+                                            </div>
+                                            <div class="input-group input-group-sm" style="width: 95px;">
+                                                <input type="number" step="0.001" name="payout_multipliers[${r.payout_id}]" class="form-control bg-black text-warning border-secondary text-end px-1" value="${escHtml(mult)}">
+                                                <span class="input-group-text bg-dark text-secondary border-secondary px-1">x</span>
+                                            </div>
                                         </div>
-                                        <div class="input-group input-group-sm" style="width: 90px;">
-                                            <input type="number" step="0.001" name="payout_multipliers[${r.payout_id}]" class="form-control bg-black text-warning border-secondary text-end px-1" value="${mult}">
-                                            <span class="input-group-text bg-dark text-secondary border-secondary px-1">x</span>
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text bg-dark text-secondary border-secondary px-2">Min</span>
+                                                    <input type="text" name="payout_rule_mins[${r.payout_id}]" class="form-control bg-black text-white border-secondary px-2" placeholder="e.g. 10|25" value="${escHtml(minVal)}">
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text bg-dark text-secondary border-secondary px-2">Max</span>
+                                                    <input type="text" name="payout_rule_maxs[${r.payout_id}]" class="form-control bg-black text-white border-secondary px-2" placeholder="e.g. 500|1000" value="${escHtml(maxVal)}">
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>`;

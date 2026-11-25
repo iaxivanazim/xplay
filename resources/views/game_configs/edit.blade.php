@@ -198,20 +198,44 @@
                                 @foreach($payoutRules as $r)
                                     @php
                                         $saved = $savedRules->get($r->payout_id);
-                                        $isActive = $saved ? $saved->is_active : true;
-                                        $multiplier = $saved && $saved->payout_multiplier !== null ? $saved->payout_multiplier : $r->payout_multiplier;
+                                        $hasOldInput = old('_token') !== null;
+                                        $isActive = $hasOldInput
+                                            ? array_key_exists($r->payout_id, old('payout_rules', []))
+                                            : ($saved ? $saved->is_active : true);
+                                        $multiplier = old(
+                                            'payout_multipliers.' . $r->payout_id,
+                                            ($saved && $saved->payout_multiplier !== null ? $saved->payout_multiplier : $r->payout_multiplier)
+                                        );
+                                        $ruleMin = old('payout_rule_mins.' . $r->payout_id, $r->min);
+                                        $ruleMax = old('payout_rule_maxs.' . $r->payout_id, $r->max);
                                     @endphp
                                     <div class="col-md-6">
-                                        <div class="d-flex align-items-center justify-content-between p-2 rounded" style="background:#161f28; border:1px solid #233547;">
-                                            <div class="form-check mb-0">
-                                                <input class="form-check-input" type="checkbox" name="payout_rules[{{ $r->payout_id }}]" value="1" id="rule_{{ $r->payout_id }}" {{ $isActive ? 'checked' : '' }}>
-                                                <label class="form-check-label text-white small" for="rule_{{ $r->payout_id }}">
-                                                    {{ $r->bet_name }} {{ $r->bet_position ? '(' . $r->bet_position . ')' : '' }}
-                                                </label>
+                                        <div class="p-2 rounded" style="background:#161f28; border:1px solid #233547;">
+                                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                                <div class="form-check mb-0">
+                                                    <input class="form-check-input" type="checkbox" name="payout_rules[{{ $r->payout_id }}]" value="1" id="rule_{{ $r->payout_id }}" {{ $isActive ? 'checked' : '' }}>
+                                                    <label class="form-check-label text-white small fw-semibold" for="rule_{{ $r->payout_id }}">
+                                                        {{ $r->bet_name }} {{ $r->bet_position ? '(' . $r->bet_position . ')' : '' }}
+                                                    </label>
+                                                </div>
+                                                <div class="input-group input-group-sm" style="width: 95px;">
+                                                    <input type="number" step="0.001" name="payout_multipliers[{{ $r->payout_id }}]" class="form-control bg-black text-warning border-secondary text-end px-1" value="{{ $multiplier }}">
+                                                    <span class="input-group-text bg-dark text-secondary border-secondary px-1">x</span>
+                                                </div>
                                             </div>
-                                            <div class="input-group input-group-sm" style="width: 90px;">
-                                                <input type="number" step="0.001" name="payout_multipliers[{{ $r->payout_id }}]" class="form-control bg-black text-warning border-secondary text-end px-1" value="{{ $multiplier }}">
-                                                <span class="input-group-text bg-dark text-secondary border-secondary px-1">x</span>
+                                            <div class="row g-2">
+                                                <div class="col-6">
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text bg-dark text-secondary border-secondary px-2">Min</span>
+                                                        <input type="text" name="payout_rule_mins[{{ $r->payout_id }}]" class="form-control bg-black text-white border-secondary px-2" placeholder="e.g. 10|25" value="{{ $ruleMin }}">
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text bg-dark text-secondary border-secondary px-2">Max</span>
+                                                        <input type="text" name="payout_rule_maxs[{{ $r->payout_id }}]" class="form-control bg-black text-white border-secondary px-2" placeholder="e.g. 500|1000" value="{{ $ruleMax }}">
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
