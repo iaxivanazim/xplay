@@ -16,28 +16,19 @@ class GameConfigApiController extends Controller
      */
     public function index(): JsonResponse
     {
-        $configs = GameConfig::with(['gameType:id,name,code', 'payoutRules.payoutRule'])
+        $configs = GameConfig::with('gameType:id,name,code')
             ->select('id', 'name', 'device_ip', 'game_type_id', 'is_default', 'is_active', 'updated_at')
             ->get()
             ->map(function ($cfg) {
                 return [
-                    'id'           => $cfg->id,
-                    'name'         => $cfg->name,
-                    'game_type'    => $cfg->gameType?->name,
-                    'game_code'    => $cfg->gameType?->code,
-                    'device_ip'    => $cfg->device_ip,
-                    'is_default'   => (bool)$cfg->is_default,
-                    'is_active'    => (bool)$cfg->is_active,
-                    'payout_rules' => $cfg->payoutRules->map(fn($r) => [
-                        'payout_id'         => $r->payout_id,
-                        'bet_name'          => $r->payoutRule?->bet_name,
-                        'bet_position'      => $r->payoutRule?->bet_position,
-                        'payout_multiplier' => $r->payout_multiplier ?? $r->payoutRule?->payout_multiplier,
-                        'min'               => $r->payoutRule?->min,
-                        'max'               => $r->payoutRule?->max,
-                        'is_active'         => (bool)$r->is_active,
-                    ])->values(),
-                    'updated_at'   => $cfg->updated_at?->toIso8601String(),
+                    'id'         => $cfg->id,
+                    'name'       => $cfg->name,
+                    'game_type'  => $cfg->gameType?->name,
+                    'game_code'  => $cfg->gameType?->code,
+                    'device_ip'  => $cfg->device_ip,
+                    'is_default' => (bool)$cfg->is_default,
+                    'is_active'  => (bool)$cfg->is_active,
+                    'updated_at' => $cfg->updated_at?->toIso8601String(),
                 ];
             });
 

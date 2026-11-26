@@ -190,9 +190,6 @@
                                         <span class="badge" style="background:#161f28; border:1px solid #233547; color:#cbd5e1; font-weight:normal; font-size:11px;">
                                             {{ $rule->payoutRule?->bet_name }}:
                                             <strong class="text-warning">{{ $rule->payout_multiplier ?? $rule->payoutRule?->payout_multiplier }}x</strong>
-                                            @if($rule->payoutRule?->min !== null || $rule->payoutRule?->max !== null)
-                                                <span class="text-secondary ms-1">({{ $rule->payoutRule?->min ?? '—' }} – {{ $rule->payoutRule?->max ?? '—' }})</span>
-                                            @endif
                                         </span>
                                     @endforeach
                                 </div>
