@@ -2,7 +2,7 @@
 ## Master Project Reference & Architecture Specification
 
 > **Document Status:** Live Reference Document  
-> **Last Updated:** October 2026  
+> **Last Updated:** November 2026  
 > **Source Base:** Forked & adapted from `gamemgt` (Physical Table Management System)  
 > **Target System:** `xplay` (Virtuals / ETG Tab-Based Casino Configuration & Resulting Engine)
 
@@ -35,12 +35,12 @@ In modern land-based casinos (e.g., Macau, Las Vegas, Singapore, Goa), Tab-based
 
 | Game Name | Code | Current Status | Station Input | Result Calculation |
 |---|---|---|---|---|
-| **Baccarat** | `BAC` | Configured (inherited) | Player cards (2-3), Banker cards (2-3) | Natural wins, tableau 3rd card rules, Player/Banker/Tie, Pairs, Lucky 6 |
-| **Andar Bahar** | `AB` | Configured (inherited) | Joker card, Andar cards array, Bahar cards array | First matching card on Andar or Bahar; 1st shot, Super Andar/Bahar |
-| **Roulette** | `ROU` | **To be implemented** | Winning number (0–36) | Straight up, Splits, Streets, Corners, Six-line, Dozens, Columns, Red/Black, Odd/Even, High/Low |
+| **Baccarat** | `BAC` | Active (Configured + History API/UI) | Player cards (2-3), Banker cards (2-3) | Natural wins, tableau 3rd card rules, Player/Banker/Tie, Pairs, Lucky 6 |
+| **Andar Bahar** | `AB` | Active (Configured + History API/UI) | Joker card, Andar cards array, Bahar cards array | First matching card on Andar or Bahar; 1st shot, Super Andar/Bahar |
+| **Roulette** | `ROL` / `ROU` | Active (Implemented + 156-Pos Engine & Modal) | Winning number (0–36) | Straight up, Splits, Streets, Corners, Six-line, Dozens, Columns, Red/Black, Odd/Even, High/Low, Call Bets |
 
-### 2.1 Games to be Decommissioned & Removed from `gamemgt`
-The following games from `gamemgt` are **out of scope** and their models, migrations, seeders, views, and controllers will be pruned:
+### 2.1 Decommissioned Legacy Games (Removed from `gamemgt`)
+The following legacy games from `gamemgt` were **out of scope** and have been pruned from models, migrations, seeders, views, and controllers:
 - ❌ Dragon Tiger (`DT`)
 - ❌ 3 Card Poker (`3CP`)
 - ❌ Blackjack (`BJ`)
@@ -84,66 +84,75 @@ flowchart TD
 ### 4.1 Tab Management & Cashier Configuration Portal
 Replaces the old physical `Game Table Management` module.
 
-- **Tab Entity (`tabs`)**:
-  - `id` / `tab_code` (e.g., `TAB-01`, `TAB-02`)
-  - `name` / `label` (e.g., "VIP Arena Tab 1")
-  - `table_id` (Station binding — which live station/game this tab bets on)
-  - `status` (`ENABLED`, `DISABLED`, `MAINTENANCE`)
-  - `lock_status` (`LOCKED`, `UNLOCKED`)
-  - `current_otp` (Player-generated session OTP; `NULL` until set by player upon first lock)
-  - `current_balance` (Real-time digital chip balance)
-  - `ip_address` / `mac_address` / `device_uuid`
-- **Cashier Actions**:
-  - **Enable / Disable Tab**: Admin/Cashier can take tab offline or make it available.
+- **Tab Entity (`tabs` via [`Tab`](file:///C:/xampp/htdocs/xplay/app/Models/Tab.php))**:
+  - `id` / `tab_number` (sequential terminal ID, e.g. `1` .. `44`)
+  - `table_name` (terminal label, e.g., `Amatic-1`, `Apex-13`, `VIP-40`)
+  - `game_config_id` (primary [`GameConfig`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfig.php)) & `tab_game_configs` pivot (multi-game config assignments)
+  - `status` (`1` = Enabled, `0` = Disabled)
+  - `lock_status` (`unlocked`, `locked`, `break`) & `locked_at` / `locked_by`
+  - `connection_status` (`online`, `offline`, `disconnected`) & `last_seen_at`
+  - `ip_address` / `active_mac` (unique active MAC enforcement across active tabs)
+  - `denomination` (`decimal(10,4)`) & `felt_color`
+- **Cashier & Admin Actions**:
+  - **Enable / Disable Tab**: Admin/Cashier can take tab out of service or restore it (`POST /tabs/{tab}/deactivate`, `POST /tabs/{tab}/restore`, or inline in Tab Edit).
   - **Lock / Unlock Tab**: Remotely lock tab or override player OTP if player forgets PIN.
-  - **Add Chips (BUYIN)**: Cashier receives cash at cage, inputs amount, system credits tab session (OTP remains `null` until player sets it on first break).
-  - **CASHOUT**: Cashier ends session, redeems balance in cash to player, tab balance resets to zero, session closes and OTP is reset to `null`.
-  - **Tab Configuration Settings**: Max bet, min bet, chip denomination presets selectable on tab.
+  - **Bulk Provisioning**: Create multiple sequential tabs with one shared config via `/tabs/bulk-create` or `POST /api/v1/tabs/bulk`, with duplicate MAC validation and alert reporting.
+  - **Add Chips (BUYIN)**: Cashier receives cash at cage, inputs amount, system credits tab session (`current_otp` remains `null` until player sets it on first lock).
+  - **CASHOUT**: Cashier ends session, redeems balance in cash to player, tab balance resets to zero, session closes and OTP resets to `null`.
+  - **Tab Configuration Settings**: Game limits, payout rules, and device telemetry exposed via `GET /api/v1/tabs/{id}/configuration`.
 
 ### 4.2 Station Middleware & Outcome Calculation Engine
 - **Station (`table_id`)**: The physical station where cards are dealt or the roulette wheel spins.
-- **Middleware Integration**:
-  - Pushes draw events to `/api/v1/station/result` or Kafka topic `station-events`.
-  - **Payload for Baccarat**:
+- **Middleware & Terminal Endpoints**:
+  - `POST /api/v1/station/{tableId}/roulette/result` ([`StationResultController::receiveRouletteResult`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/StationResultController.php)): Station pushes drawn Roulette pocket (`0–36`), settles active tab bets via [`RouletteEngine`](file:///C:/xampp/htdocs/xplay/app/Services/RouletteEngine.php), credits `tab_statuses`, and saves history.
+  - `POST /api/v1/roulette/settle` ([`StationResultController::settle`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/StationResultController.php)): Direct round settlement endpoint.
+  - `POST /api/v1/tabs/{id}/bet` ([`StationResultController::placeBet`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/StationResultController.php)): Validates balance and lock state for tab bets.
+  - `POST /api/v1/tabs/{id}/win`, `POST /api/v1/tabs/{id}/loss`, `POST /api/v1/tabs/{id?}/game-result` ([`TabApiController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php)): Atomic balance updates via [`TabBalanceService`](file:///C:/xampp/htdocs/xplay/app/Services/TabBalanceService.php).
+  - `POST /api/v1/history/{game}` ([`GameHistoryController::store`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php)): Records round history for `baccarat`, `andarbahar`, and `roulette`.
+  - **Payload Example (Baccarat History/Round)**:
     ```json
     {
       "table_id": 1,
-      "game": "BAC",
+      "game_no": "BAC-8801",
       "shoe_no": 42,
-      "round_no": 15,
+      "tab_id": "1",
       "player_cards": ["Ah", "Kd"],
       "banker_cards": ["7s", "8c"],
-      "timestamp": "2026-10-14T19:50:00Z"
+      "winner": "banker",
+      "bet_position": {"banker": 200},
+      "bet_amount": 200,
+      "win_amount": 390,
+      "current_credit": 1190
     }
     ```
-  - **Payload for Andar Bahar**:
+  - **Payload Example (Andar Bahar History/Round)**:
     ```json
     {
       "table_id": 2,
-      "game": "AB",
-      "round_no": 88,
+      "game_no": "AB-8801",
+      "tab_id": "2",
       "joker_card": "9h",
       "andar_cards": ["2c", "Kh", "9d"],
       "bahar_cards": ["3s", "Jd"],
-      "timestamp": "2026-10-14T19:50:00Z"
+      "winner": "andar",
+      "bet_position": {"andar": 100},
+      "bet_amount": 100,
+      "win_amount": 195,
+      "current_credit": 1095
     }
     ```
-  - **Payload for Roulette**:
+  - **Payload Example (Roulette Result)**:
     ```json
     {
       "table_id": 3,
-      "game": "ROU",
-      "round_no": 120,
-      "winning_number": 17,
-      "timestamp": "2026-10-14T19:50:00Z"
+      "game_no": "ROU-120",
+      "winning_number": 17
     }
     ```
 - **Backend Result Calculation**:
-  - Computes winning outcomes (e.g. for Roulette 17: Black, Odd, Low (1-18), 2nd Dozen, 2nd Column, Street 16-17-18, etc.).
-  - Evaluates all unsettled bets placed by active tabs for that station's round.
-  - Calculates win amounts using configured `payout_rules`.
-  - Updates each tab's credit balance atomically.
-  - Records game round history.
+  - Computes winning outcomes (e.g. for Roulette 17: Black, Odd, Low (1-18), 2nd Dozen, 2nd Column, Street 16-17-18, plus 156 physical inside/outside grid coordinates & call bets).
+  - Evaluates all bets against configured `payout_rules`.
+  - Updates each tab's credit balance atomically in `tab_statuses` + `tab_balance_logs` and persists game round history.
 
 ### 4.3 Simplified Financial Ledger (Cage Buyin & Cashout Only)
 - Unlike `gamemgt` (which had FILL, CREDIT, DROP, ADJUST, TABLE FLOAT), `xplay` uses a direct Cage ledger model:
@@ -212,33 +221,31 @@ Replaces the old physical `Game Table Management` module.
    - `tab_statuses.current_balance` is reset to `0.00` and `tab_statuses.current_otp` is reset to `NULL`.
    - The tab returns to `IDLE` state, completely clean for the next player.
 
-### 4.5 Fast Recovery: `tab_current_status` Table
-In high-volume casino operations, network interruptions, Wi-Fi drops, browser crashes, or tablet battery depletion can occur. The system must not rely on replaying ledger transactions to discover tab state.
-- **`tab_current_status` Schema**:
-  - `tab_id` (Primary / Unique Index)
-  - `table_id` (Station linked)
-  - `session_id` (UUID)
-  - `session_otp` (Current active OTP)
-  - `current_balance` (Decimal 12, 2)
-  - `current_bet_total` (Sum of active unsettled bets in current round)
-  - `status` (`IDLE`, `ACTIVE`, `LOCKED`, `DISABLED`, `OFFLINE`)
-  - `lock_state` (`LOCKED`, `UNLOCKED`)
-  - `last_round_id` (Last processed game round)
-  - `last_heartbeat_at` (Timestamp of last tab ping)
-  - `metadata` (JSON for client-state restoration: active screen, volume, theme, UI preferences)
-  - `updated_at`
+### 4.5 Fast Recovery & Atomic Balance Engine (`tab_statuses` & `tab_balance_logs`)
+In high-volume casino operations, network interruptions, Wi-Fi drops, browser crashes, or tablet battery depletion can occur. The system must not rely on replaying cage ledger transactions to discover tab state.
+- **`tab_statuses` Schema ([`TabStatus`](file:///C:/xampp/htdocs/xplay/app/Models/TabStatus.php))**:
+  - `tab_id` (Foreign Key / Unique Index to `tabs`)
+  - `status` (`idle`, `active`, `locked`, `disabled`, `offline`), `lock_status` (`unlocked`, `locked`, `break`)
+  - `current_session_id` (UUID), `current_otp` (player session PIN; `NULL` until first lock), `player_name` / `player_phone` / `player_card_id`
+  - `current_balance` (`decimal(12,2)`), `balance_version` (monotonic integer incremented atomically on every balance change)
+  - `last_op_type` (`BUYIN`, `CASHOUT`, `WIN`, `LOSS`, `BET`, `ADJUST`), `last_op_amount`, `last_op_prev_balance`, `last_op_new_balance`, `last_op_ref`, `last_op_notes`, `last_op_at`
+  - `shift_total_in`, `shift_total_out`, `shift_total_bet`, `shift_total_win`, `last_bet_amount`, `last_win_amount`
+  - `active_mac`, `connection_status`, `last_game_no`, `last_game_at`, `last_synced_at`
+  - `recovery_data` (`json` snapshot including `otp`, `balance`, `game_config_id`, and `telemetry` metrics like `battery`, `is_charging`, `wifi_rssi`, `app_version`, `disconnect_reason`)
+- **Immutable Audit Trail (`tab_balance_logs` via [`TabBalanceLog`](file:///C:/xampp/htdocs/xplay/app/Models/TabBalanceLog.php) & [`TabBalanceService`](file:///C:/xampp/htdocs/xplay/app/Services/TabBalanceService.php))**:
+  - Records every balance transition transactionally with row-level `lockForUpdate()`, `balance_version`, `op_type`, `prev_balance`, and `new_balance`.
+  - Exposed via `GET /api/v1/tabs/{id}/balance-logs` (supports `limit` and `since_version`), `GET /api/v1/tabs/{id}/status`, `POST /api/v1/tabs/{id}/restore`, and `GET|POST /api/v1/tabs/{id}/heartbeat`.
 
-### 4.6 History API
-RESTful API for tabs and management dashboards to retrieve game and betting history with high flexibility:
-- **Endpoint**: `GET /api/v1/history/{game}`
-- **Parameters**:
-  - `limit` / `per_page`: Number of rows (default 20, max 100)
-  - `page`: Pagination offset
-  - `table_id`: Filter by station
-  - `tab_id`: Filter by tab
-  - `date_from` / `date_to`: Date range
-  - `winner`: Filter by outcome (e.g. `P`, `B`, `T`, `17`, `RED`)
-  - `sort`: `asc` or `desc` by timestamp/id
+### 4.6 Game History API & Web Module
+RESTful API and web UI ([`GameHistoryController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php)) for storing and querying round history across **Baccarat** (`BAC`/`BACCARAT`), **Andar Bahar** (`AB`/`ANDARBAHAR`/`ANDAR_BAHAR`/`ANDAR-BAHAR`), and **Roulette** (`ROL`/`ROU`/`ROULETTE`):
+- **API Endpoints (`routes/api.php`)**:
+  - `POST /api/v1/history/{game}` ([`GameHistoryController::store`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php#L66)): Persists a round record with flexible payload parsing (arrays, stringified JSON, or comma-separated cards; `"key:val"` or JSON object `bet_position`; `side_win`; `date_time` defaults to `now()`; `game_no` / `round_no` fallback; bidirectional `table_id` ↔ `tab_id` resolution; safe empty/default handling for non-nullable card and winner columns including `joker_card`, `andar_cards`, `bahar_cards`, `player_cards`, `banker_cards`; HTTP `422` validation for Roulette `winning_number` `0–36`, nonexistent `table_id`, non-numeric amounts, and malformed `date_time`).
+  - `GET /api/v1/history/{game}/table/{id}` ([`GameHistoryController::byTable`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php)): Session-grouped (`game_no`) history matching both `table_id` and `tab_id` (`id`, `tab_number`, or `table_name`), case-insensitive `winner` filtering, `date` filtering, and `prev_game_no`/`next_game_no` navigation.
+  - `GET /api/v1/history/{game}/tab/{tabId}` ([`GameHistoryController::byTab`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php)): Paginated round history by Tab identifier (`tab_id`, `tab_number`, `id`, or `table_name`).
+  - `GET /api/v1/history/{game}/{recordId}` ([`GameHistoryController::show`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php)): Single record JSON payload for modal inspection.
+- **Web Portal (`GET /history`, [`resources/views/history/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/index.blade.php))**:
+  - Unified **Tab** filter dropdown displaying `Tab Name (Tab #ID)` (`{{ $t->table_name }} (Tab #{{ $t->tab_number ?? $t->id }})`), supporting all active games without hiding tabs based on default `game_type_id`.
+  - Game-specific card rendering in [`partials/cards.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/partials/cards.blade.php) (`P:`/`B:` for Baccarat, `J:`/`A:`/`B:` for Andar Bahar, `#Num Color` for Roulette) and interactive detail modal (`modal-xl`, including the 156-position Roulette visual board in [`partials/roulette_board.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/partials/roulette_board.blade.php)).
 
 ### 4.7 Kafka Integration Architecture & Strategy
 - **Why Kafka?**
@@ -287,23 +294,25 @@ RESTful API for tabs and management dashboards to retrieve game and betting hist
 The system is organized into three distinct, specialized modules as requested by the client:
 
 ### 6.1 Module 1: `Game_Config` (`/game_configs`)
-- **Controller:** [`GameConfigController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameConfigController.php)
+- **Controllers:** [`GameConfigController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameConfigController.php) (Web CRUD) and [`GameConfigApiController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/GameConfigApiController.php) (`GET /api/v1/game-configs`, `GET|POST|PUT /api/v1/game-configs/{id?}/device-ip`, plus `/api/game-configs/...` aliases)
 - **Primary Model:** [`GameConfig`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfig.php)
-- **Rules Mapping:** [`GameConfigPayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfigPayoutRule.php)
+- **Rules Mapping:** [`GameConfigPayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfigPayoutRule.php) & [`PayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php)
 - **Purpose:** Centralized configuration of game types (`Baccarat`, `Andar Bahar`, `Roulette`), serving as default rules and betting parameters for tabs deployed across the casino floor.
 - **Fields & Parameters:**
   - `name`: Human-readable identifier (e.g. "Standard European Roulette", "High Roller Baccarat").
+  - `device_ip`: Station / Table IP address (labeled "Table IP Address" in `create.blade.php` / `edit.blade.php`, manageable via UI or `/api/v1/game-configs/{id?}/device-ip` including auto-capture fallback).
   - `game_type_id`: Foreign key reference to `game_types`.
-  - `min_bet` / `max_bet`: Pipe-separated tiered betting ranges (e.g. `10|25|50` and `500|1000|2000`).
-  - `side_min_bet` / `side_max_bet`: Limit envelopes for side wagers.
+  - `min_bet` / `max_bet`: Pipe-separated tiered or single betting ranges (e.g. `10|25|50` and `500|1000|2000`), validated via [`PipeSeparatedNumbers`](file:///C:/xampp/htdocs/xplay/app/Rules/PipeSeparatedNumbers.php) and pair comparison.
   - `roulette_type`: Single Zero European (`european`), French with La Partage (`french`), or Double Zero (`american`).
   - `baccarat_6_commission`: Toggle between standard 5% commission and No-Commission (Super 6 / Banker 6 paying 50%).
   - `commission`: Numerical multiplier (e.g. `0.0500`).
   - `burn_card`: Number of cards burned before deal.
-  - Specific bet envelopes: `tie_min`, `tie_max`, `pair_min`, `pair_max`, `super6_min`, `super6_max`, `andar_min`, `andar_max`, `bahar_min`, `bahar_max`.
+  - Specific bet envelopes & game parameters: `tie_min`, `tie_max`, `pair_min`, `pair_max`, `super6_min`, `super6_max`, `andar_min`, `andar_max`, `bahar_min`, `bahar_max`, and `andar_bahar_game_count` ("Andar Bahar Game Count" in the Andar Bahar Parameters section).
   - `is_default`: Flag indicating if this configuration is the default template for newly created tabs.
   - `is_active`: Administrative enable/disable switch.
-- **Payout Rules Overrides:** Checkboxes and multiplier override inputs dynamically mapped to [`PayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php).
+- **Payout Rules & Multipliers:**
+  - In [`create.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs/create.blade.php) and [`edit.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs/edit.blade.php), the `Payout Rules & Multipliers` panel renders per-rule inputs for active state (`payout_rules[]`) and custom multiplier (`payout_multipliers[]`).
+  - Active toggles and custom multipliers are stored per config in `game_config_payout_rules` ([`GameConfigPayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfigPayoutRule.php)). (Per-rule `min`/`max` editing from reverted `CR:7.1` and `payout_rules.min`/`max` from `CR:7` have been completely removed.)
 
 ---
 
@@ -317,22 +326,22 @@ The system is organized into three distinct, specialized modules as requested by
   - `tab_number`: Sequential machine number (1, 2, ... 44).
   - `table_name`: Screen display name (e.g. `Amatic-1`, `Apex-13`, `VIP-40`).
   - `ip_address`: Network IP (e.g. `192.168.1.101`).
-  - `active_mac`: Hardware MAC address for binding and anti-spoofing.
+  - `active_mac`: Hardware MAC address for binding and anti-spoofing (enforced unique via `game_tables_active_mac_unique` with friendly validation & SQL error alerts).
   - `denomination`: Decimal ratio for credits (default `0.0100`).
   - `game_config_id`: Primary default game config assigned to the tab.
   - `tab_game_configs`: Pivot relation supporting **multiple game configs assigned to one tab** (allowing players to switch between Roulette, Baccarat, and Andar Bahar at the terminal).
   - `lock_status`: `unlocked`, `locked`, `break`.
   - `status`: 1 = enabled, 0 = disabled.
-  - `connection_status`: `online`, `offline`, `disconnected`.
+  - `connection_status`: `online`, `offline`, `disconnected` (`last_seen_at` timeout `Tab::HEARTBEAT_TIMEOUT_SECONDS = 90`).
 - **UI View (`resources/views/tabs/index.blade.php`):**
   - **Faithfully replicates mockup `WhatsApp Image 2026-09-15 at 9.28.14 PM.jpeg`**:
-    - Top KPI strip: User (Cashier), Period, Time, Total In, Total Out, Difference, Total Bet, Total Win, Total Difference, Opening Float, Float Balance. (Note: Legacy physical slot metrics like FT In/Out, Bill In, and Megapot/Tournament jackpots have been removed).
+    - Top KPI strip: User (Cashier), Period, Time, Total In, Total Out, Difference, Total Bet, Total Win, Total Difference, Opening Float, Float Balance. (Note: Legacy physical slot metrics like FT In/Out, Bill In, Hand Pay, and Megapot/Tournament jackpots have been removed).
     - Left Actions card: Quick access to Bulk Add Tabs, New Single Tab, and Game Configs.
     - Table columns: `U` (Unlock/Lock badge), `NO`, `E` (Enabled Y/N), `F` (Free Y/N), `A` (Active Y/N), `NAME`, `DENOMINATION`, `CREDITS`, `PROMO`, `LAST BET`, `GAMES`, `IN`, `OUT`, `BALANCE` (green for positive, red for negative), `BET`, `CONFIG`, `ACTIONS`.
 - **Bulk Tab Provisioning (`/tabs/bulk-create`):**
   - Allows cashiers/administrators to rapidly generate banks of 5, 10, 20+ tabs in a single transaction with one shared basic game configuration.
   - Supports naming prefix templates (`Amatic-`, `Apex-`, `VIP-`, `TAB-`), sequential numbering, starting IP auto-incrementation, denomination, and initial lock status.
-  - Features an interactive dynamic preview table with individual inline row editing (custom numbers, names, IPs, MACs, row deletion, and custom row addition).
+  - Features an interactive dynamic preview table with individual inline row editing (custom numbers, names, IPs, MACs, row deletion, and custom row addition) plus live duplicate-MAC detection.
   - Automatically initializes `TabStatus` (failure recovery snapshot) and `TabGameConfig` relations for all generated tabs.
   - Every tab created in bulk retains its own distinct identity and can be edited individually at any time via `/tabs/{tab}/edit` or the Cage Dashboard drawer.
 
@@ -344,14 +353,14 @@ The system is organized into three distinct, specialized modules as requested by
 - **Purpose:** Live cashier monitoring floor and interactive cage drawer.
 - **Layout & Visual Design:**
   - **Faithfully replicates mockup `WhatsApp Image 2026-09-15 at 5.26.20 PM.jpeg`**:
-    - **Top KPI Strip**: Real-time totals for Cage In, Cage Out, Gross Gaming Revenue (GGR), Drop/Transfers, Credits, Machines (42), and Active (2).
-    - **7-Column Grid**: 42 responsive tab cards (rows 1–6 matching the mockup: Amatic-1 to Amatic-12, Apex-13 to Apex-27, Amatic-28 to Amatic-39, VIP-40 to VIP-44).
+    - **Top KPI Strip**: Real-time totals for Cage In, Cage Out, Gross Gaming Revenue (GGR), Credits, Machines, and Active tabs (legacy FT In/Out, Bill In, Hand Pay, and Jackpot blocks removed).
+    - **Responsive Tab Grid (`#tabGrid`)**: Contained responsive card grid (`minmax` auto-fill columns preventing overlap with `.cage-sidebar-panel`) showing Tab Number, Lock & Battery telemetry indicators, live active-session `player_name` + `Bet` + `Win` overlay above `table_name`, and current cash balance.
     - **Status Borders**:
-      - `border-idle`: Bright emerald green (`#10b981`) for idle/unlocked tabs.
-      - `border-active`: Glowing golden amber (`#f59e0b`) with drop shadow for active tabs with balance (Tabs #38 and #42).
-      - `border-locked`: Red border (`#ef4444`) for locked / break mode tabs.
-      - `border-disabled`: Muted dark slate (`#334155`).
-    - **Right Sidebar**: Opening Float (0.00), Float Balance (0.00), `Day & Shift` button, `View` button (toggles to `/tabs` list view), `Logout`, and solid red `Exit` button.
+      - `border-disabled`: Muted dark slate (`E = 'N'` disabled tabs).
+      - `border-locked`: Golden amber (`#f59e0b`) for locked / break mode tabs (`U = 'L'`).
+      - `border-not-free`: Glowing red (`#ef4444`) for occupied/active-balance tabs (`F = 'N'`).
+      - `border-idle`: Bright emerald green (`#10b981`) for idle/free unlocked tabs (`F = 'Y'`).
+    - **Right Sidebar**: Opening Float, Float Balance, `Day & Shift` button, `View` button (toggles to `/tabs` list view), `Logout`, and solid red `Exit` button.
 - **Interactive Cashier Drawer Modal (Clicking any Tab):**
   1. **Tab Identity Banner:** Number, Name, IP, MAC, Online status, Lock status.
   2. **Live Balance & OTP:** Displays real-time balance in pure cash (no chips) and active session OTP status (`Not Set (Prompt on 1st Lock)` until player creates PIN, or the active PIN).
@@ -463,21 +472,28 @@ sequenceDiagram
       - Animated gold halo highlighting the winning pocket.
       - Full placed bets breakdown table showing Position #, Bet Name, Rule Type, Covered Numbers, Wager, Multiplier, Outcome, and Payout Win.
   - [x] Created test suite [`RouletteResultingTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/RouletteResultingTest.php) (5 passed, 57 assertions, 100% passing).
-  - [x] **Game History Module Overhaul & Multi-Game Fixes**:
+  - [x] **Game History Module Overhaul & Multi-Game Fixes (`CR:7` & `CR:8`)**:
     - Renamed "Table" filter to "Tab" and unified display as `Tab Name (Tab #ID)`.
-    - Removed redundant separate "Tab ID" filter.
-    - Removed JavaScript listener that previously wiped out / hid tab choices upon changing game types.
-    - Fixed Baccarat and Andar Bahar viewing, pagination, and filtering across web and API endpoints.
-    - Added automated `date_time`, `game_no`, and `bet_position` defaults, string card parsing, and winner normalization in [`GameHistoryController::store`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php).
-    - Fixed modal JavaScript crash when `winner` is null/undefined and enabled card parsing for Baccarat and Andar Bahar hands in [`history/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/index.blade.php) and [`history/partials/cards.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/partials/cards.blade.php).
-    - Created automated test suite [`GameHistoryModuleTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameHistoryModuleTest.php) (9 passed, 34 assertions, 100% passing).
+    - Removed redundant separate "Tab ID" filter and removed the JavaScript listener that previously hid tab choices when changing game types.
+    - Fixed Baccarat and Andar Bahar viewing, session pagination, case-insensitive winner filtering, and bidirectional `table_id` / `tab_id` matching in [`GameHistoryController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameHistoryController.php).
+    - Hardened `POST /api/v1/history/{game}` (`store`) with automatic `date_time` / `game_no` / `bet_amount` / `win_amount` / `current_credit` defaults, safe empty-value fallbacks for non-nullable card and winner columns (`joker_card`, `andar_cards`, `bahar_cards`, `player_cards`, `banker_cards`), flexible list/key-value parsing (`parseListField`, `parseKeyValueString`) for Postman JSON & form-data strings, and HTTP `422` validation errors for missing/invalid Roulette `winning_number`, nonexistent `table_id`, numeric bounds, and invalid dates.
+    - Fixed modal JavaScript `renderDetail()` / `renderCards()` handling in [`history/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/index.blade.php) and multi-card display in [`history/partials/cards.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/history/partials/cards.blade.php).
+    - Verified via [`GameHistoryModuleTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameHistoryModuleTest.php) (**12 passed, 46 assertions**).
+  - [x] **Payout Rules & Game Config Cleanup + Andar Bahar Game Count (`CR:7.1` Reverted)**:
+    - Reverted `CR:7.1` and completely removed `payout_rules.min` / `payout_rules.max` columns and functionality via [`2026_11_26_000001_remove_min_max_from_payout_rules_table.php`](file:///C:/xampp/htdocs/xplay/database/migrations/2026_11_26_000001_remove_min_max_from_payout_rules_table.php), [`PayoutRuleSeeder.php`](file:///C:/xampp/htdocs/xplay/database/seeders/PayoutRuleSeeder.php), [`PayoutRule`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php), [`PayoutRuleController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/PayoutRuleController.php), [`payout_rules/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/payout_rules/index.blade.php), [`appjs.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/components/appjs.blade.php), [`TabApiController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php), and [`FormatsGameTable`](file:///C:/xampp/htdocs/xplay/app/FormatsGameTable.php).
+    - Removed `side_min_bet` and `side_max_bet` from all game configs ([`2026_11_26_000002_update_game_configs_side_bet_and_ab_game_count.php`](file:///C:/xampp/htdocs/xplay/database/migrations/2026_11_26_000002_update_game_configs_side_bet_and_ab_game_count.php), [`GameConfig`](file:///C:/xampp/htdocs/xplay/app/Models/GameConfig.php), [`GameConfigController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameConfigController.php), [`DefaultGameConfigSeeder`](file:///C:/xampp/htdocs/xplay/database/seeders/DefaultGameConfigSeeder.php), [`game_configs`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs), and [`TabApiController::configuration`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php)).
+    - Added `andar_bahar_game_count` (`Andar Bahar Game Count`) to the Andar Bahar Parameters section in [`create.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs/create.blade.php) and [`edit.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs/edit.blade.php), displayed in [`index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/game_configs/index.blade.php), persisted in [`GameConfigController`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/GameConfigController.php), and exposed in related APIs (`GET /api/v1/game-configs`, `GET /api/v1/tabs/{id}/configuration`, `GET /api/v1/tabs`, `GET /api/v1/tabs/{id}`, `GET /api/v1/tabs/by-mac/{mac}`, and `POST /api/v1/tabs/{id}/restore`).
+    - Verified via [`GameConfigAndPayoutCleanupTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameConfigAndPayoutCleanupTest.php).
+  - [x] **U, E, F, A Status Workflow, Telemetry & Balance Logs (`CR:2`, `CR:4`, `CR:6`)**:
+    - Implemented atomic `TabBalanceService`, monotonic `balance_version`, `tab_balance_logs`, real-time heartbeat sync (`Tab::isOnline()`, `Tab::syncStaleConnections()`, `HEARTBEAT_TIMEOUT_SECONDS = 90`), single-tab heartbeat telemetry relay, and batch station telemetry API (`StationResultController::syncTelemetry`).
 - [ ] **Phase 8: Kafka Real-Time Messaging Layer**
   - [ ] Deploy Kafka producers for station events, resulting, and cashier tab commands.
 
-**
-In the XPLAY ETG / Tab-Based Casino Gaming System, 'U', 'E', 'F', and 'A' represent the four core status columns displayed in the Tab
-  Management Table (index.blade.php:228-234). They also directly dictate the visual border states on the Cashier Cage Dashboard
-  (dashboard.blade.php:347-354).
+---
+
+## 🔧 9. Tab Status States ('U', 'E', 'F', 'A') & Telemetry Architecture
+
+In the XPLAY ETG / Tab-Based Casino Gaming System, `U`, `E`, `F`, and `A` represent the four core status columns displayed in the Tab Management Table ([`tabs/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/tabs/index.blade.php)). They also directly dictate the visual border states on the Cashier Cage Dashboard ([`dashboard.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/dashboard.blade.php#L346-L355)).
 
   ### Quick Reference
    State │ Column Title        │ Full Name                 │             UI Values              │ Underlying Model Fields
@@ -632,29 +648,29 @@ In the XPLAY ETG / Tab-Based Casino Gaming System, 'U', 'E', 'F', and 'A' repres
   * **Behavior:** Processes all tabs in the pit station atomically in a single network round-trip. Updates each tab's online status (`isOnline`), heartbeat timestamp (`last_seen_at`), and persists hardware metrics to `tab_statuses.recovery_data['telemetry']`.
 
   ──────
-  ### 6. Payout Rules Min and Max Multi-Valued Limits
-  Each payout rule supports customizable `min` and `max` wagering limit columns:
-  * **Database Columns:** `payout_rules.min` and `payout_rules.max` (string, nullable).
-  * **Format:** Supports pipe-separated multi-values (e.g., `10|25|50` and `500|1000|2000`) as well as single values (e.g., `5` and `100`).
-  * **Model Helpers:** [`PayoutRule::$min_values`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php) and [`PayoutRule::$max_values`](file:///C:/xampp/htdocs/xplay/app/Models/PayoutRule.php) parse pipe strings into float arrays (e.g. `[10.0, 25.0, 50.0]`).
-  * **Validation:** Validated via [`App\Rules\PipeSeparatedNumbers`](file:///C:/xampp/htdocs/xplay/app/Rules/PipeSeparatedNumbers.php) upon store and update.
-  * **UI Management:** Displayed and editable in [`resources/views/payout_rules/index.blade.php`](file:///C:/xampp/htdocs/xplay/resources/views/payout_rules/index.blade.php) via AJAX with immediate persistence.
-  * **API Coverage:** Included in:
-    * `GET /api/v1/payout-rules/game-type/{id}` ([`PayoutRuleController::apiByGameType`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/PayoutRuleController.php))
-    * `GET /api/v1/payout-rules/rule/{id}` ([`PayoutRuleController::apiShow`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/PayoutRuleController.php))
-    * `GET /api/v1/payout-rules/{gameTypeId}` (`routes/api.php`)
-    * `GET /api/v1/tabs/{id}/configuration` ([`TabApiController::configuration`](file:///C:/xampp/htdocs/xplay/app/Http/Controllers/Api/TabApiController.php))
-    * `GET /api/v1/game-tables/{id}/configuration` ([`FormatsGameTable::formatTable`](file:///C:/xampp/htdocs/xplay/app/FormatsGameTable.php))
+  ### 6. Summary of Dashboard Visual Mapping
 
-  ──────
-  ### Summary of Dashboard Visual Mapping
-
-  The 4 states work together to control the card appearance on the Cashier Dashboard (dashboard.blade.php:347-354):
+  The 4 states work together to control the card appearance on the Cashier Dashboard (`resources/views/dashboard.blade.php`):
 
     E = 'N' (Disabled)  ──>  Slate Grey Border (.border-disabled)
     U = 'L' (Locked)    ──>  Golden Amber Border (.border-locked)
     F = 'N' (Occupied)  ──>  Glowing Red Border (.border-not-free)
     F = 'Y' (Free/Idle) ──>  Emerald Green Border (.border-idle)
-**
+
+  ---
+
+## 🧪 10. Feature Test Suites (`tests/Feature/`)
+
+- [`BulkTabCreationTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/BulkTabCreationTest.php): Bulk tab provisioning & config linking.
+- [`TabBulkDuplicateMacTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/TabBulkDuplicateMacTest.php): Multi-layer duplicate MAC validation & error alerting.
+- [`TabOtpLifecycleTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/TabOtpLifecycleTest.php): Player-generated OTP lifecycle (`NULL` until first lock, cashout reset).
+- [`TabHeartbeatAndBalanceTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/TabHeartbeatAndBalanceTest.php): Atomic `TabBalanceService`, `balance_version` sync, `tab_balance_logs`.
+- [`TabStatusEAndATest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/TabStatusEAndATest.php): Operational enablement (`E`) & online/heartbeat timeout (`A`).
+- [`StationTabTelemetryTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/StationTabTelemetryTest.php): Single-tab relay & batch station telemetry sync.
+- [`GameConfigDeviceIpTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameConfigDeviceIpTest.php): Game config `device_ip` CRUD and API endpoints.
+- [`GameConfigAndPayoutCleanupTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameConfigAndPayoutCleanupTest.php): Removal of `payout_rules.min`/`max` and `side_min_bet`/`side_max_bet`, plus `andar_bahar_game_count` CRUD and API exposure.
+- [`RouletteResultingTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/RouletteResultingTest.php): 156-position Roulette resulting engine, station settlement, and history view.
+- [`GameHistoryModuleTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/GameHistoryModuleTest.php): History Tab filter, Baccarat/Andar Bahar/Roulette API & web view, null/missing card safeguarding.
+- [`VirtualsModulesTest.php`](file:///C:/xampp/htdocs/xplay/tests/Feature/VirtualsModulesTest.php): Core GameConfig, TabConfig, Dashboard card/session rendering, and crash recovery.
 
 *Update this document after every implementation.*

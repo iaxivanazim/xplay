@@ -70,18 +70,6 @@
                                         value="{{ old('max_bet', $gameConfig->max_bet) }}" required>
                                 </div>
 
-                                <div class="col-md-6">
-                                    <label class="form-label text-secondary small">Side Bet Min</label>
-                                    <input type="number" step="0.01" name="side_min_bet" class="form-control bg-black text-white border-secondary"
-                                        value="{{ old('side_min_bet', $gameConfig->side_min_bet) }}">
-                                </div>
-
-                                <div class="col-md-6">
-                                    <label class="form-label text-secondary small">Side Bet Max</label>
-                                    <input type="number" step="0.01" name="side_max_bet" class="form-control bg-black text-white border-secondary"
-                                        value="{{ old('side_max_bet', $gameConfig->side_max_bet) }}">
-                                </div>
-
                                 @if(in_array($gameConfig->gameType?->code, ['BAC', 'AB']))
                                 <div class="col-md-6">
                                     <label class="form-label text-secondary small">Burn Cards Count</label>
@@ -181,6 +169,11 @@
                                         <input type="number" step="0.01" name="bahar_min" class="form-control bg-black text-white border-secondary" placeholder="Min" value="{{ old('bahar_min', $gameConfig->bahar_min) }}">
                                         <input type="number" step="0.01" name="bahar_max" class="form-control bg-black text-white border-secondary" placeholder="Max" value="{{ old('bahar_max', $gameConfig->bahar_max) }}">
                                     </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-secondary small">Andar Bahar Game Count</label>
+                                    <input type="number" min="0" step="1" name="andar_bahar_game_count" class="form-control bg-black text-white border-secondary"
+                                        placeholder="e.g. 10" value="{{ old('andar_bahar_game_count', $gameConfig->andar_bahar_game_count) }}">
                                 </div>
                             </div>
                         </div>

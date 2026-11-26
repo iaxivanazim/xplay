@@ -85,13 +85,15 @@ class DashboardController extends Controller
                 'lock_status'       => $tab->lock_status,
                 'connection_status' => $tab->isOnline() ? 'online' : 'offline',
                 'status'            => $tab->status,
-                'game_config_id'    => $tab->game_config_id,
-                'game_config_name'  => $tab->gameConfig?->name,
-                'game_type'         => $tab->gameConfig?->gameType?->name,
-                'assigned_configs'  => $tab->gameConfigs->map(fn($c) => [
-                    'id'   => $c->id,
-                    'name' => $c->name,
-                    'game' => $c->gameType?->name,
+                'game_config_id'         => $tab->game_config_id,
+                'game_config_name'       => $tab->gameConfig?->name,
+                'game_type'              => $tab->gameConfig?->gameType?->name,
+                'andar_bahar_game_count' => $tab->gameConfig?->andar_bahar_game_count,
+                'assigned_configs'       => $tab->gameConfigs->map(fn($c) => [
+                    'id'                     => $c->id,
+                    'name'                   => $c->name,
+                    'game'                   => $c->gameType?->name,
+                    'andar_bahar_game_count' => $c->andar_bahar_game_count,
                 ]),
             ],
             'status'         => [

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\GameType;
 use App\Models\PayoutRule;
-use App\Rules\PipeSeparatedNumbers;
 
 class PayoutRuleController extends Controller
 {
@@ -32,8 +31,6 @@ class PayoutRuleController extends Controller
             'bet_name'          => 'required|string|max:255',
             'bet_position'      => 'nullable|string|max:50',
             'payout_multiplier' => 'nullable|numeric|min:0',
-            'min'               => ['nullable', new PipeSeparatedNumbers],
-            'max'               => ['nullable', new PipeSeparatedNumbers],
             'is_active'         => 'nullable|boolean',
             'is_jackpot'        => 'nullable|boolean',
         ]);
@@ -57,8 +54,6 @@ class PayoutRuleController extends Controller
             'bet_name'          => 'sometimes|string|max:255',
             'bet_position'      => 'nullable|string|max:50',
             'payout_multiplier' => 'nullable|numeric|min:0',
-            'min'               => ['nullable', new PipeSeparatedNumbers],
-            'max'               => ['nullable', new PipeSeparatedNumbers],
             'is_active'         => 'sometimes|boolean',
             'is_jackpot'        => 'sometimes|boolean',
         ]);

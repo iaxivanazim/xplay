@@ -83,6 +83,7 @@
                                 {{-- Left info --}}
                                 <div>
                                     <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="text-warning fw-bold">{{ $cfg->id }}</span>
                                         <span class="fs-5 fw-bold text-white">{{ $cfg->name }}</span>
                                         <span class="badge rounded-pill px-2 py-1"
                                             style="background:{{ $badgeColor }}22; color:{{ $badgeColor }}; border:1px solid {{ $badgeColor }}; font-size:11px;">
@@ -113,12 +114,6 @@
                                             <span class="text-secondary">to</span>
                                             <span class="text-warning fw-bold">{{ $cfg->max_bet }}</span>
                                         </div>
-                                        @if($cfg->side_min_bet || $cfg->side_max_bet)
-                                            <div>
-                                                <span class="text-white-50">Side Bet:</span>
-                                                <span class="text-warning fw-bold">{{ $cfg->side_min_bet ?? 0 }} - {{ $cfg->side_max_bet ?? 0 }}</span>
-                                            </div>
-                                        @endif
                                         @if($cfg->roulette_type && in_array($cfg->gameType?->code, ['ROL', 'ROU']))
                                             <div>
                                                 <span class="text-white-50">Wheel:</span>
@@ -129,6 +124,12 @@
                                             <div>
                                                 <span class="text-white-50">Commission:</span>
                                                 <span class="text-info">{{ $cfg->baccarat_6_commission ? 'No-Commission (Punto Banco / Super 6)' : ($cfg->commission * 100) . '%' }}</span>
+                                            </div>
+                                        @endif
+                                        @if($cfg->gameType?->code === 'AB' && $cfg->andar_bahar_game_count !== null)
+                                            <div>
+                                                <span class="text-white-50">Andar Bahar Game Count:</span>
+                                                <span class="text-info fw-semibold">{{ $cfg->andar_bahar_game_count }}</span>
                                             </div>
                                         @endif
                                         @if($cfg->device_ip)

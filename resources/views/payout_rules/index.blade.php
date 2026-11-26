@@ -54,8 +54,6 @@
                             <th>Bet Name</th>
                             <th>Position</th>
                             <th>Multiplier</th>
-                            <th>Min</th>
-                            <th>Max</th>
                             <th>Status</th>
                             <th>Action</th>
                         </tr>

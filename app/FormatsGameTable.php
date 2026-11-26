@@ -80,8 +80,6 @@ trait FormatsGameTable
                         'bet_name'          => $r->payoutRule->bet_name,
                         'bet_position'      => $r->payoutRule->bet_position,
                         'payout_multiplier' => $multiplier,
-                        'min'               => $r->payoutRule->min,
-                        'max'               => $r->payoutRule->max,
                         'is_jackpot'        => (bool) $r->payoutRule->is_jackpot,
                         'seed_value'        => $r->payoutRule->is_jackpot && $r->is_active
                             ? (float) $r->seed_value

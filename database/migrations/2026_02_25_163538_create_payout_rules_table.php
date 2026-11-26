@@ -21,9 +21,6 @@ return new class extends Migration
 
             $table->decimal('payout_multiplier', 8, 3)->nullable(); // Example: 35.00
 
-            $table->string('min')->nullable(); // Pipe-separated or single value (e.g. 10 or 10|25|50)
-            $table->string('max')->nullable(); // Pipe-separated or single value (e.g. 500 or 500|1000|2000)
-
             $table->boolean('is_active')->default(1);
             $table->boolean('is_jackpot')->default(0);
 
